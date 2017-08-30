@@ -18,7 +18,7 @@ func TestCommands(t *testing.T) {
 		name string
 		fun  func(...string) (*Response, error)
 	}{
-		{"Check", client.Check},
+		//{"Check", client.Check},
 		{"Skip", client.Skip},
 		{"Symbols", client.Symbols},
 		{"Report", client.Report},
@@ -37,8 +37,8 @@ func TestCommands(t *testing.T) {
 			if r == nil {
 				t.Fatal("r is nil")
 			}
-			if r.Code != ExOK {
-				t.Errorf("Code != ExOk: %v", r.Code)
+			if r.Code != 0 {
+				t.Errorf("Code != exOk: %v", r.Code)
 			}
 		})
 	}
@@ -53,8 +53,8 @@ func TestPing(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
-	if r.Code != ExOK {
-		t.Errorf("Code != ExOk: %v", r.Code)
+	if r.Code != 0 {
+		t.Errorf("Code != exOk: %v", r.Code)
 	}
 }
 
@@ -71,10 +71,9 @@ func TestTell(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
-	if r.Code != ExOK {
-		t.Errorf("Code != ExOk: %v", r.Code)
+	if r.Code != 0 {
+		t.Errorf("Code != exOk: %v", r.Code)
 	}
-
 }
 
 func TestLearn(t *testing.T) {
@@ -87,8 +86,21 @@ func TestLearn(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
-	if r.Code != ExOK {
-		t.Errorf("Code != ExOk: %v", r.Code)
+	if r.Code != 0 {
+		t.Errorf("Code != exOk: %v", r.Code)
 	}
 
+}
+
+func TestCheck(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Check("Penis viagra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	fmt.Printf("%#v\n", r)
 }
