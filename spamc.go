@@ -1,4 +1,3 @@
-// Package spamc is a client library for SpamAssassin's spamd daemon.
 package spamc
 
 import (
@@ -7,81 +6,23 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Error codes.
 const (
-	ExOK          = 0  // no problems
-	ExUsage       = 64 // command line usage error
-	ExDataErr     = 65 // data format error
-	ExNoInput     = 66 // cannot open input
-	ExNoUser      = 67 // addressee unknown
-	ExNoHost      = 68 // host name unknown
-	ExUnavailable = 69 // service unavailable
-	ExSoftware    = 70 // internal software error
-	ExOserr       = 71 // system error (e.g., can't fork)
-	ExOsfile      = 72 // critical OS file missing
-	ExCantcreat   = 73 // can't create (user) output file
-	ExIoerr       = 74 // input/output error
-	ExTempfail    = 75 // temp failure; user is invited to retry
-	ExProtocol    = 76 // remote error in protocol
-	ExNoperm      = 77 // permission denied
-	ExConfig      = 78 // configuration error
-	ExTimeout     = 79 // read timeout
+	protocolVersion = "1.5"
+	defaultTimeout  = 20 * time.Second
+
+	split     = "§"
+	tableMark = "----"
 )
 
-// Default parameters.
-const (
-	ProtocolVersion = "1.5"
-	DefaultTimeout  = 20 * time.Second
-)
-
-// Command types.
-const (
-	Check               = "CHECK"
-	Symbols             = "SYMBOLS"
-	Report              = "REPORT"
-	ReportIgnorewarning = "REPORT_IGNOREWARNING"
-	ReportIfspam        = "REPORT_IFSPAM"
-	Skip                = "SKIP"
-	Ping                = "PING"
-	Tell                = "TELL"
-	Process             = "PROCESS"
-	Headers             = "HEADERS"
-)
-
-// Learn types
-const (
-	LearnSpam    = "SPAM"
-	LearnHam     = "HAM"
-	LearnNotspam = "NOTSPAM"
-	LearnNotSpam = "NOT_SPAM"
-	LearnForget  = "FORGET"
-)
-
-// Test Types
-const (
-	TestInfo    = "info"
-	TestBody    = "body"
-	TestRawbody = "rawbody"
-	TestHeader  = "header"
-	TestFull    = "full"
-	TestURI     = "uri"
-	TestTxt     = "text"
-)
-
-// only for parse use !important
-const (
-	Split     = "§"
-	TableMark = "----"
-)
-
-// SpamDError is a mapping of the error codes to the error messages.
-var SpamDError = map[int]string{
+// mapping of the error codes to the error messages.
+var errorMessages = map[int]string{
 	ExUsage:       "Command line usage error",
 	ExDataErr:     "Data format error",
 	ExNoInput:     "Cannot open input",
@@ -100,168 +41,30 @@ var SpamDError = map[int]string{
 	ExTimeout:     "Read timeout",
 }
 
-// Client is a connection to the spamd daemon.
-type Client struct {
-	Timeout         time.Duration
-	ProtocolVersion string
-	Host            string
-	User            string
-}
-
-// SpamDOut is the default response struct.
-type SpamDOut struct {
-	Code    int
-	Message string
-	Vars    map[string]interface{}
-}
-
-// FnCallback for the SpamD response.
-type FnCallback func(*bufio.Reader) (*SpamDOut, error)
-
-// New instance of Client.
-func New(host string, timeout time.Duration) *Client {
-	if timeout == 0 {
-		timeout = DefaultTimeout
+func dbg(s string, f ...interface{}) {
+	if Verbose {
+		fmt.Fprintf(os.Stderr, s, f...)
 	}
-	return &Client{
-		Timeout:         timeout,
-		ProtocolVersion: ProtocolVersion,
-		Host:            host,
-		User:            "",
-	}
-}
-
-// SetUnixUser sets the "User" on the client.
-func (s *Client) SetUnixUser(user string) {
-	s.User = user
-}
-
-// Ping returns a confirmation that spamd is alive.
-func (s *Client) Ping() (r *SpamDOut, err error) {
-	return s.simpleCall(Ping, []string{})
-}
-
-// Check if the passed message is spam or not and return score
-func (s *Client) Check(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(Check, msgpars)
-}
-
-// Skip ignores this message: client opened connection then changed its mind.
-func (s *Client) Skip(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(Skip, msgpars)
-}
-
-// Symbols check if message is spam, and return score plus list of symbols hit.
-func (s *Client) Symbols(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(Symbols, msgpars)
-}
-
-// Report the message is spam, and return score plus report
-func (s *Client) Report(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(Report, msgpars)
-}
-
-// ReportIgnoreWarning checks if message is spam or not, and return score plus report
-func (s *Client) ReportIgnoreWarning(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(ReportIgnorewarning, msgpars)
-}
-
-// ReportIfSpam check if message is spam or not, and return score plus report if
-// the message is spam.
-func (s *Client) ReportIfSpam(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(ReportIfspam, msgpars)
-}
-
-// Process this message and return a modified message - on deloy
-func (s *Client) Process(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(Process, msgpars)
-}
-
-// Headers is the same as PROCESS, but return only modified headers, not body
-// (new in protocol 1.4).
-func (s *Client) Headers(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(Headers, msgpars)
-}
-
-// ReportingSpam signs the message as spam.
-func (s *Client) ReportingSpam(msgpars ...string) (reply *SpamDOut, err error) {
-	headers := map[string]string{
-		"Message-class": "spam",
-		"Set":           "local,remote",
-	}
-	return s.Tell(msgpars, &headers)
-}
-
-// RevokeSpam signs the message as false-positive.
-func (s *Client) RevokeSpam(msgpars ...string) (reply *SpamDOut, err error) {
-	headers := map[string]string{
-		"Message-class": "ham",
-		"Set":           "local,remote",
-	}
-	return s.Tell(msgpars, &headers)
-}
-
-// Learn if a message is spam or not
-func (s *Client) Learn(learnType string, msgpars ...string) (reply *SpamDOut, err error) {
-	headers := make(map[string]string)
-	switch strings.ToUpper(learnType) {
-	case LearnSpam:
-		headers["Message-class"] = "spam"
-		headers["Set"] = "local"
-	case LearnHam, LearnNotspam, LearnNotSpam:
-		headers["Message-class"] = "ham"
-		headers["Set"] = "local"
-	case LearnForget:
-		headers["Remove"] = "local"
-	default:
-		err = errors.New("Learn Type Not Found")
-		return
-	}
-	return s.Tell(msgpars, &headers)
 }
 
 // wrapper to simple calls
-func (s *Client) simpleCall(cmd string, msgpars []string) (reply *SpamDOut, err error) {
-	return s.call(cmd, msgpars, func(data *bufio.Reader) (r *SpamDOut, e error) {
-		r, e = processResponse(cmd, data)
+func (s *Client) simpleCall(cmd string, msgpars []string) (*Response, error) {
+	return s.call(cmd, msgpars, func(data *bufio.Reader) (*Response, error) {
+		r, err := processResponse(cmd, data)
 		if r.Code == ExOK {
-			e = nil
+			err = nil
 		}
-		return
+		return r, err
 	}, nil)
-}
-
-// SimpleCall is an external wrapper to simple call.
-func (s *Client) SimpleCall(cmd string, msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(strings.ToUpper(cmd), msgpars)
-}
-
-// Tell what type of we are to process and what should be done
-// with that message.  This includes setting or removing a local
-// or a remote database (learning, reporting, forgetting, revoking)
-func (s *Client) Tell(msgpars []string, headers *map[string]string) (reply *SpamDOut, err error) {
-	return s.call(Tell, msgpars, func(data *bufio.Reader) (r *SpamDOut, e error) {
-		r, e = processResponse(Tell, data)
-
-		if r.Code == ExUnavailable {
-			e = errors.New("TELL commands are not enabled, set the --allow-tell switch")
-			return
-		}
-		if r.Code == ExOK {
-			e = nil
-			return
-		}
-		return
-	}, headers)
 }
 
 // here a TCP socket is created to call SPAMD
 func (s *Client) call(
 	cmd string,
 	msgpars []string,
-	onData FnCallback,
+	onData func(*bufio.Reader) (*Response, error),
 	extraHeaders *map[string]string,
-) (reply *SpamDOut, err error) {
+) (*Response, error) {
 
 	if extraHeaders == nil {
 		extraHeaders = &map[string]string{}
@@ -279,32 +82,30 @@ func (s *Client) call(
 		x["User"] = msgpars[1]
 		*extraHeaders = x
 	default:
-		if cmd != Ping {
-			err = errors.New("Message parameters wrong size")
-		} else {
-			msgpars = []string{""}
+		if cmd != CmdPing {
+			return nil, errors.New("message parameters wrong size")
 		}
-		return
+		msgpars = []string{""}
 	}
 
-	if cmd == ReportIgnorewarning {
-		cmd = Report
+	if cmd == CmdReportIgnorewarning {
+		cmd = CmdReport
 	}
 
 	// Create a new connection
-	stream, err := net.DialTimeout("tcp", s.Host, s.Timeout)
+	stream, err := net.DialTimeout("tcp", s.host, s.timeout)
 	if err != nil {
-		return reply, fmt.Errorf("connection dial error to spamd: %v", err)
+		return nil, fmt.Errorf("connection dial error to spamd: %v", err)
 	}
 	// Set connection timeout
-	errTimeout := stream.SetDeadline(time.Now().Add(s.Timeout))
+	errTimeout := stream.SetDeadline(time.Now().Add(s.timeout))
 	if errTimeout != nil {
-		return reply, fmt.Errorf("connection to spamd timed out: %v", errTimeout)
+		return nil, fmt.Errorf("connection to spamd timed out: %v", errTimeout)
 	}
 	defer stream.Close() // nolint: errcheck
 
 	// Create Command to Send to spamd
-	cmd += " SPAMC/" + s.ProtocolVersion + "\r\n"
+	cmd += " SPAMC/" + s.protocolVersion + "\r\n"
 	cmd += "Content-length: " + fmt.Sprintf("%v\r\n", len(msgpars[0])+2)
 	// Process Extra Headers if Any
 	if len(*extraHeaders) > 0 {
@@ -314,29 +115,33 @@ func (s *Client) call(
 	}
 	cmd += "\r\n" + msgpars[0] + "\r\n\r\n"
 
+	dbg("sending:\n%v\nsending END\n", cmd)
 	_, errwrite := stream.Write([]byte(cmd))
 	if errwrite != nil {
-		err = errors.New("spamd returned a error: " + errwrite.Error())
-		return
+		return nil, errors.New("spamd returned a error: " + errwrite.Error())
 	}
 
 	// Execute onData callback throwing the buffer like parameter
-	reply, err = onData(bufio.NewReader(stream))
-	return
+	return onData(bufio.NewReader(stream))
 }
 
+var (
+	reParseResponse = regexp.MustCompile(`(?i)SPAMD\/([0-9\.\-]+)\s([0-9]+)\s([0-9A-Z_]+)`)
+	reFindScore     = regexp.MustCompile(`(?i)Spam:\s(True|False|Yes|No)\s;\s([0-9\.]+)\s\/\s([0-9\.]+)`)
+)
+
 // SpamD reply processor
-func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err error) {
+func processResponse(cmd string, data *bufio.Reader) (*Response, error) {
 	defer data.UnreadByte() // nolint: errcheck
 
-	returnObj = new(SpamDOut)
+	returnObj := new(Response)
 	returnObj.Code = -1
 	// read the first line
 	line, _, _ := data.ReadLine()
 	lineStr := string(line)
+	var err error
 
-	r := regexp.MustCompile(`(?i)SPAMD\/([0-9\.\-]+)\s([0-9]+)\s([0-9A-Z_]+)`)
-	var result = r.FindStringSubmatch(lineStr)
+	var result = reParseResponse.FindStringSubmatch(lineStr)
 	if len(result) < 4 {
 		if cmd != "SKIP" {
 			err = errors.New("spamd unrecognised reply:" + lineStr)
@@ -344,22 +149,22 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 			returnObj.Code = ExOK
 			returnObj.Message = "SKIPPED"
 		}
-		return
+		return returnObj, err
 	}
 	returnObj.Code, _ = strconv.Atoi(result[2])
 	returnObj.Message = result[3]
 
 	// verify a mapped error...
-	if SpamDError[returnObj.Code] != "" {
-		err = errors.New(SpamDError[returnObj.Code])
+	if errorMessages[returnObj.Code] != "" {
+		err = errors.New(errorMessages[returnObj.Code])
 		returnObj.Vars = make(map[string]interface{})
-		returnObj.Vars["error_description"] = SpamDError[returnObj.Code]
-		return
+		returnObj.Vars["error_description"] = errorMessages[returnObj.Code]
+		return returnObj, err
 	}
 	returnObj.Vars = make(map[string]interface{})
 
 	// start didSet
-	if cmd == Tell {
+	if cmd == CmdTell {
 		returnObj.Vars["didSet"] = false
 		returnObj.Vars["didRemove"] = false
 		for {
@@ -379,7 +184,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 			}
 
 		}
-		return
+		return returnObj, err
 	}
 	// read the second line
 	line, _, err = data.ReadLine()
@@ -389,24 +194,23 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 		if err == io.EOF {
 			err = nil
 		}
-		return
+		return returnObj, err
 	}
 
 	// ignore content-length header..
 	lineStr = string(line)
 	switch cmd {
 
-	case Symbols, Check, Report, ReportIfspam, ReportIgnorewarning, Process, Headers:
+	case CmdSymbols, CmdCheck, CmdReport, CmdReportIfspam, CmdReportIgnorewarning, CmdProcess, CmdHeaders:
 
 		switch cmd {
-		case Symbols, Report, ReportIfspam, ReportIgnorewarning, Process, Headers:
+		case CmdSymbols, CmdReport, CmdReportIfspam, CmdReportIgnorewarning, CmdProcess, CmdHeaders:
 			// ignore content-length header..
 			line, _, err = data.ReadLine()
 			lineStr = string(line)
 		}
 
-		r := regexp.MustCompile(`(?i)Spam:\s(True|False|Yes|No)\s;\s([0-9\.]+)\s\/\s([0-9\.]+)`)
-		var result = r.FindStringSubmatch(lineStr)
+		var result = reFindScore.FindStringSubmatch(lineStr)
 
 		if len(result) > 0 {
 			returnObj.Vars["isSpam"] = false
@@ -419,7 +223,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 		}
 
 		switch cmd {
-		case Process, Headers:
+		case CmdProcess, CmdHeaders:
 			lines := ""
 			for {
 				line, _, err = data.ReadLine()
@@ -427,12 +231,12 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 					if err == io.EOF {
 						err = nil
 					}
-					return
+					return returnObj, err
 				}
 				lines += string(line) + "\r\n"
 				returnObj.Vars["body"] = lines
 			}
-		case Symbols:
+		case CmdSymbols:
 			// ignore line break...
 			_, _, err := data.ReadLine()
 			if err != nil {
@@ -446,7 +250,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 			}
 			returnObj.Vars["symbolList"] = strings.Split(string(line), ",")
 
-		case Report, ReportIfspam, ReportIgnorewarning:
+		case CmdReport, CmdReportIfspam, CmdReportIgnorewarning:
 			// ignore line break...
 			_, _, err := data.ReadLine()
 			if err != nil {
@@ -460,7 +264,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 					lineStr = string(line)
 
 					// TXT Table found, prepare to parse..
-					if len(lineStr) >= 4 && lineStr[0:4] == TableMark {
+					if len(lineStr) >= 4 && lineStr[0:4] == tableMark {
 
 						section := []map[string]interface{}{}
 						tt := 0
@@ -479,13 +283,13 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 							if lineStr[0:1] == "-" {
 								spc = 1
 							}
-							lineStr = strings.Replace(lineStr, " ", Split, spc)
-							lineStr = strings.Replace(lineStr, " ", Split, 1)
+							lineStr = strings.Replace(lineStr, " ", split, spc)
+							lineStr = strings.Replace(lineStr, " ", split, 1)
 							if spc > 1 {
 								lineStr = " " + lineStr[2:]
 							}
-							x := strings.Split(lineStr, Split)
-							if lineStr[1:3] == Split {
+							x := strings.Split(lineStr, split)
+							if lineStr[1:3] == split {
 								section[tt-1]["message"] = fmt.Sprintf("%v %v", section[tt-1]["message"], strings.TrimSpace(lineStr[5:]))
 							} else {
 								if len(x) != 0 {
@@ -502,7 +306,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 								}
 							}
 						}
-						if ReportIgnorewarning == cmd {
+						if cmd == CmdReportIgnorewarning {
 							nsection := []map[string]interface{}{}
 							for _, c := range section {
 								if c["score"].(float64) != 0 {
@@ -538,5 +342,5 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 			}
 		}
 	}
-	return
+	return returnObj, err
 }
