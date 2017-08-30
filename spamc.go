@@ -256,7 +256,12 @@ func (s *Client) Tell(msgpars []string, headers *map[string]string) (reply *Spam
 }
 
 // here a TCP socket is created to call SPAMD
-func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHeaders *map[string]string) (reply *SpamDOut, err error) {
+func (s *Client) call(
+	cmd string,
+	msgpars []string,
+	onData FnCallback,
+	extraHeaders *map[string]string,
+) (reply *SpamDOut, err error) {
 
 	if extraHeaders == nil {
 		extraHeaders = &map[string]string{}
@@ -289,16 +294,14 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 	// Create a new connection
 	stream, err := net.DialTimeout("tcp", s.Host, s.Timeout)
 	if err != nil {
-		err = errors.New("Connection dial error to spamd: " + err.Error())
-		return
+		return reply, fmt.Errorf("connection dial error to spamd: %v", err)
 	}
 	// Set connection timeout
 	errTimeout := stream.SetDeadline(time.Now().Add(s.Timeout))
 	if errTimeout != nil {
-		err = errors.New("Connection to spamd Timed Out:" + errTimeout.Error())
-		return
+		return reply, fmt.Errorf("connection to spamd timed out: %v", errTimeout)
 	}
-	defer stream.Close()
+	defer stream.Close() // nolint: errcheck
 
 	// Create Command to Send to spamd
 	cmd += " SPAMC/" + s.ProtocolVersion + "\r\n"
@@ -324,9 +327,7 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 
 // SpamD reply processor
 func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err error) {
-	defer func() {
-		data.UnreadByte()
-	}()
+	defer data.UnreadByte() // nolint: errcheck
 
 	returnObj = new(SpamDOut)
 	returnObj.Code = -1
@@ -433,14 +434,24 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 			}
 		case Symbols:
 			// ignore line break...
-			data.ReadLine()
+			_, _, err := data.ReadLine()
+			if err != nil {
+				return nil, err
+			}
+
 			// read
 			line, _, err = data.ReadLine()
+			if err != nil {
+				return nil, err
+			}
 			returnObj.Vars["symbolList"] = strings.Split(string(line), ",")
 
 		case Report, ReportIfspam, ReportIgnorewarning:
 			// ignore line break...
-			data.ReadLine()
+			_, _, err := data.ReadLine()
+			if err != nil {
+				return nil, err
+			}
 
 			for {
 				line, _, err = data.ReadLine()
@@ -458,7 +469,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 							// Stop read the text table if last line or Void line
 							if err == io.EOF || err != nil || len(line) == 0 {
 								if err == io.EOF {
-									err = nil
+									err = nil // nolint: ineffassign
 								}
 								break
 							}
@@ -508,7 +519,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 
 				if err == io.EOF || err != nil {
 					if err == io.EOF {
-						err = nil
+						err = nil // nolint: ineffassign
 					}
 					break
 				}
@@ -518,7 +529,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 
 	if err != io.EOF {
 		for {
-			line, _, err = data.ReadLine()
+			line, _, err = data.ReadLine() // nolint: ineffassign
 			if err == io.EOF || err != nil {
 				if err == io.EOF {
 					err = nil
