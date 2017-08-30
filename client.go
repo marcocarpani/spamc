@@ -334,7 +334,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 	line, _, _ := data.ReadLine()
 	lineStr := string(line)
 
-	r := regexp.MustCompile(`(?i)SPAMD\/([0-9\.]+)\s([0-9]+)\s([0-9A-Z_]+)`)
+	r := regexp.MustCompile(`(?i)SPAMD\/([0-9\.\-]+)\s([0-9]+)\s([0-9A-Z_]+)`)
 	var result = r.FindStringSubmatch(lineStr)
 	if len(result) < 4 {
 		if cmd != "SKIP" {
