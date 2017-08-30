@@ -1,0 +1,12 @@
+dist: trusty
+sudo: required
+language: go
+go:
+  - 1.8.x
+before_install:
+  - mv $HOME/gopath/src/github.com/Teamwork $HOME/gopath/src/github.com/teamwork
+script:
+  - cd $HOME/gopath/src/github.com/teamwork/go-spamc
+  - ./bin/test
+  - ./bin/coverage
+  - ./bin/lint

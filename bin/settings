@@ -1,0 +1,21 @@
+_setup_docker() {
+	if [ $(docker container ls -a --filter name=spamc-test | wc -l) -eq 1 ]; then
+		docker build --tag teamwork/spamc:test .
+		docker run --detach --name spamc-test teamwork/spamc:test
+	else
+		docker container start spamc-test
+	fi
+
+	# Make sure we stop/destroy the container.
+	cleanup() {
+		docker container stop spamc-test
+	}
+	trap cleanup EXIT
+
+	id=$(docker inspect spamc-test --format '{{.Id}}')
+	export SPAMC_SA_ADDRESS=$(docker network inspect bridge \
+		--format "{{(index .Containers \"$id\").IPv4Address}}" |
+		cut -d/ -f1)
+}
+
+pre_test_func=_setup_docker
