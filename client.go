@@ -1,3 +1,4 @@
+// Package spamc is a client library for SpamAssassin's spamd daemon.
 package spamc
 
 import (
@@ -12,83 +13,94 @@ import (
 	"time"
 )
 
-//Error Types
+// Error codes.
+const (
+	ExOK          = 0  // no problems
+	ExUsage       = 64 // command line usage error
+	ExDataErr     = 65 // data format error
+	ExNoInput     = 66 // cannot open input
+	ExNoUser      = 67 // addressee unknown
+	ExNoHost      = 68 // host name unknown
+	ExUnavailable = 69 // service unavailable
+	ExSoftware    = 70 // internal software error
+	ExOserr       = 71 // system error (e.g., can't fork)
+	ExOsfile      = 72 // critical OS file missing
+	ExCantcreat   = 73 // can't create (user) output file
+	ExIoerr       = 74 // input/output error
+	ExTempfail    = 75 // temp failure; user is invited to retry
+	ExProtocol    = 76 // remote error in protocol
+	ExNoperm      = 77 // permission denied
+	ExConfig      = 78 // configuration error
+	ExTimeout     = 79 // read timeout
+)
 
-const EX_OK = 0           //no problems
-const EX_USAGE = 64       // command line usage error
-const EX_DATAERR = 65     // data format error
-const EX_NOINPUT = 66     // cannot open input
-const EX_NOUSER = 67      // addressee unknown
-const EX_NOHOST = 68      // host name unknown
-const EX_UNAVAILABLE = 69 // service unavailable
-const EX_SOFTWARE = 70    // internal software error
-const EX_OSERR = 71       // system error (e.g., can't fork)
-const EX_OSFILE = 72      // critical OS file missing
-const EX_CANTCREAT = 73   // can't create (user) output file
-const EX_IOERR = 74       // input/output error
-const EX_TEMPFAIL = 75    // temp failure; user is invited to retry
-const EX_PROTOCOL = 76    // remote error in protocol
-const EX_NOPERM = 77      // permission denied
-const EX_CONFIG = 78      // configuration error
-const EX_TIMEOUT = 79     // read timeout
+// Default parameters.
+const (
+	ProtocolVersion = "1.5"
+	DefaultTimeout  = 10
+)
 
-//map of default spamD protocol errors v1.5
+// Command types.
+const (
+	Check               = "CHECK"
+	Symbols             = "SYMBOLS"
+	Report              = "REPORT"
+	ReportIgnorewarning = "REPORT_IGNOREWARNING"
+	ReportIfspam        = "REPORT_IFSPAM"
+	Skip                = "SKIP"
+	Ping                = "PING"
+	Tell                = "TELL"
+	Process             = "PROCESS"
+	Headers             = "HEADERS"
+)
+
+// Learn types
+const (
+	LearnSpam    = "SPAM"
+	LearnHam     = "HAM"
+	LearnNotspam = "NOTSPAM"
+	LearnNotSpam = "NOT_SPAM"
+	LearnForget  = "FORGET"
+)
+
+// Test Types
+const (
+	TestInfo    = "info"
+	TestBody    = "body"
+	TestRawbody = "rawbody"
+	TestHeader  = "header"
+	TestFull    = "full"
+	TestURI     = "uri"
+	TestTxt     = "text"
+)
+
+// only for parse use !important
+const (
+	Split     = "§"
+	TableMark = "----"
+)
+
+// SpamDError is a mapping of the error codes to the error messages.
 var SpamDError = map[int]string{
-	EX_USAGE:       "Command line usage error",
-	EX_DATAERR:     "Data format error",
-	EX_NOINPUT:     "Cannot open input",
-	EX_NOUSER:      "Addressee unknown",
-	EX_NOHOST:      "Host name unknown",
-	EX_UNAVAILABLE: "Service unavailable",
-	EX_SOFTWARE:    "Internal software error",
-	EX_OSERR:       "System error",
-	EX_OSFILE:      "Critical OS file missing",
-	EX_CANTCREAT:   "Can't create (user) output file",
-	EX_IOERR:       "Input/output error",
-	EX_TEMPFAIL:    "Temp failure; user is invited to retry",
-	EX_PROTOCOL:    "Remote error in protocol",
-	EX_NOPERM:      "Permission denied",
-	EX_CONFIG:      "Configuration error",
-	EX_TIMEOUT:     "Read timeout",
+	ExUsage:       "Command line usage error",
+	ExDataErr:     "Data format error",
+	ExNoInput:     "Cannot open input",
+	ExNoUser:      "Addressee unknown",
+	ExNoHost:      "Host name unknown",
+	ExUnavailable: "Service unavailable",
+	ExSoftware:    "Internal software error",
+	ExOserr:       "System error",
+	ExOsfile:      "Critical OS file missing",
+	ExCantcreat:   "Can't create (user) output file",
+	ExIoerr:       "Input/output error",
+	ExTempfail:    "Temp failure; user is invited to retry",
+	ExProtocol:    "Remote error in protocol",
+	ExNoperm:      "Permission denied",
+	ExConfig:      "Configuration error",
+	ExTimeout:     "Read timeout",
 }
 
-//Default parameters
-const PROTOCOL_VERSION = "1.5"
-const DEFAULT_TIMEOUT = 10
-
-//Command types
-const CHECK = "CHECK"
-const SYMBOLS = "SYMBOLS"
-const REPORT = "REPORT"
-const REPORT_IGNOREWARNING = "REPORT_IGNOREWARNING"
-const REPORT_IFSPAM = "REPORT_IFSPAM"
-const SKIP = "SKIP"
-const PING = "PING"
-const TELL = "TELL"
-const PROCESS = "PROCESS"
-const HEADERS = "HEADERS"
-
-//Learn types
-const LEARN_SPAM = "SPAM"
-const LEARN_HAM = "HAM"
-const LEARN_NOTSPAM = "NOTSPAM"
-const LEARN_NOT_SPAM = "NOT_SPAM"
-const LEARN_FORGET = "FORGET"
-
-//Test Types
-const TEST_INFO = "info"
-const TEST_BODY = "body"
-const TEST_RAWBODY = "rawbody"
-const TEST_HEADER = "header"
-const TEST_FULL = "full"
-const TEST_URI = "uri"
-const TEST_TXT = "text"
-
-//only for parse use !important
-const SPLIT = "§"
-const TABLE_MARK = "----"
-
-//Types
+// Client is a connection to the spamd daemon.
 type Client struct {
 	ConnTimoutSecs  int
 	ProtocolVersion string
@@ -96,71 +108,74 @@ type Client struct {
 	User            string
 }
 
-//Default response struct
+// SpamDOut is the default response struct.
 type SpamDOut struct {
 	Code    int
 	Message string
 	Vars    map[string]interface{}
 }
 
-//Default callback to SpanD response
+// FnCallback for the SpamD response.
 type FnCallback func(*bufio.Reader) (*SpamDOut, error)
 
-//new instance of Client
+// New instance of Client.
 func New(host string, timeout int) *Client {
-	return &Client{timeout, PROTOCOL_VERSION, host, ""}
+	return &Client{timeout, ProtocolVersion, host, ""}
 }
 
+// SetUnixUser sets the "User" on the client.
 func (s *Client) SetUnixUser(user string) {
 	s.User = user
 }
 
-// Return a confirmation that spamd is alive.
+// Ping returns a confirmation that spamd is alive.
 func (s *Client) Ping() (r *SpamDOut, err error) {
-	return s.simpleCall(PING, []string{})
+	return s.simpleCall(Ping, []string{})
 }
 
-// Just check if the passed message is spam or not and return score
+// Check if the passed message is spam or not and return score
 func (s *Client) Check(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(CHECK, msgpars)
+	return s.simpleCall(Check, msgpars)
 }
 
-//Ignore this message -- client opened connection then changed its mind
+// Skip ignores this message: client opened connection then changed its mind.
 func (s *Client) Skip(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(SKIP, msgpars)
+	return s.simpleCall(Skip, msgpars)
 }
 
-//Check if message is spam or not, and return score plus list of symbols hit
+// Symbols check if message is spam, and return score plus list of symbols hit.
 func (s *Client) Symbols(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(SYMBOLS, msgpars)
+	return s.simpleCall(Symbols, msgpars)
 }
 
-//Check if message is spam or not, and return score plus report
+// Report the message is spam, and return score plus report
 func (s *Client) Report(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(REPORT, msgpars)
+	return s.simpleCall(Report, msgpars)
 }
 
-//Check if message is spam or not, and return score plus report
+// ReportIgnoreWarning checks if message is spam or not, and return score plus report
 func (s *Client) ReportIgnoreWarning(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(REPORT_IGNOREWARNING, msgpars)
+	return s.simpleCall(ReportIgnorewarning, msgpars)
 }
 
-//Check if message is spam or not, and return score plus report if the message is spam
+// ReportIfSpam check if message is spam or not, and return score plus report if
+// the message is spam.
 func (s *Client) ReportIfSpam(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(REPORT_IFSPAM, msgpars)
+	return s.simpleCall(ReportIfspam, msgpars)
 }
 
-//Process this message and return a modified message - on deloy
+// Process this message and return a modified message - on deloy
 func (s *Client) Process(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(PROCESS, msgpars)
+	return s.simpleCall(Process, msgpars)
 }
 
-//Same as PROCESS, but return only modified headers, not body (new in protocol 1.4) 
+// Headers is the same as PROCESS, but return only modified headers, not body
+// (new in protocol 1.4).
 func (s *Client) Headers(msgpars ...string) (reply *SpamDOut, err error) {
-	return s.simpleCall(HEADERS, msgpars)
+	return s.simpleCall(Headers, msgpars)
 }
 
-//Sign the message as spam
+// ReportingSpam signs the message as spam.
 func (s *Client) ReportingSpam(msgpars ...string) (reply *SpamDOut, err error) {
 	headers := map[string]string{
 		"Message-class": "spam",
@@ -169,7 +184,7 @@ func (s *Client) ReportingSpam(msgpars ...string) (reply *SpamDOut, err error) {
 	return s.Tell(msgpars, &headers)
 }
 
-//Sign the message as false-positive
+// RevokeSpam signs the message as false-positive.
 func (s *Client) RevokeSpam(msgpars ...string) (reply *SpamDOut, err error) {
 	headers := map[string]string{
 		"Message-class": "ham",
@@ -178,17 +193,17 @@ func (s *Client) RevokeSpam(msgpars ...string) (reply *SpamDOut, err error) {
 	return s.Tell(msgpars, &headers)
 }
 
-//Learn if a message is spam or not
+// Learn if a message is spam or not
 func (s *Client) Learn(learnType string, msgpars ...string) (reply *SpamDOut, err error) {
 	headers := make(map[string]string)
 	switch strings.ToUpper(learnType) {
-	case LEARN_SPAM:
+	case LearnSpam:
 		headers["Message-class"] = "spam"
 		headers["Set"] = "local"
-	case LEARN_HAM, LEARN_NOTSPAM, LEARN_NOT_SPAM:
+	case LearnHam, LearnNotspam, LearnNotSpam:
 		headers["Message-class"] = "ham"
 		headers["Set"] = "local"
-	case LEARN_FORGET:
+	case LearnForget:
 		headers["Remove"] = "local"
 	default:
 		err = errors.New("Learn Type Not Found")
@@ -197,34 +212,34 @@ func (s *Client) Learn(learnType string, msgpars ...string) (reply *SpamDOut, er
 	return s.Tell(msgpars, &headers)
 }
 
-//wrapper to simple calls
+// wrapper to simple calls
 func (s *Client) simpleCall(cmd string, msgpars []string) (reply *SpamDOut, err error) {
 	return s.call(cmd, msgpars, func(data *bufio.Reader) (r *SpamDOut, e error) {
 		r, e = processResponse(cmd, data)
-		if r.Code == EX_OK {
+		if r.Code == ExOK {
 			e = nil
 		}
 		return
 	}, nil)
 }
 
-//external wrapper to simple call
+// SimpleCall is an external wrapper to simple call.
 func (s *Client) SimpleCall(cmd string, msgpars ...string) (reply *SpamDOut, err error) {
 	return s.simpleCall(strings.ToUpper(cmd), msgpars)
 }
 
-//Tell what type of we are to process and what should be done
-//with that message.  This includes setting or removing a local
-//or a remote database (learning, reporting, forgetting, revoking)
+// Tell what type of we are to process and what should be done
+// with that message.  This includes setting or removing a local
+// or a remote database (learning, reporting, forgetting, revoking)
 func (s *Client) Tell(msgpars []string, headers *map[string]string) (reply *SpamDOut, err error) {
-	return s.call(TELL, msgpars, func(data *bufio.Reader) (r *SpamDOut, e error) {
-		r, e = processResponse(TELL, data)
+	return s.call(Tell, msgpars, func(data *bufio.Reader) (r *SpamDOut, e error) {
+		r, e = processResponse(Tell, data)
 
-		if r.Code == EX_UNAVAILABLE {
-			e = errors.New("TELL commands are not enabled, set the --allow-tell switch.")
+		if r.Code == ExUnavailable {
+			e = errors.New("TELL commands are not enabled, set the --allow-tell switch")
 			return
 		}
-		if r.Code == EX_OK {
+		if r.Code == ExOK {
 			e = nil
 			return
 		}
@@ -232,7 +247,7 @@ func (s *Client) Tell(msgpars []string, headers *map[string]string) (reply *Spam
 	}, headers)
 }
 
-//here a TCP socket is created to call SPAMD
+// here a TCP socket is created to call SPAMD
 func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHeaders *map[string]string) (reply *SpamDOut, err error) {
 
 	if extraHeaders == nil {
@@ -251,7 +266,7 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 		x["User"] = msgpars[1]
 		*extraHeaders = x
 	default:
-		if cmd != PING {
+		if cmd != Ping {
 			err = errors.New("Message parameters wrong size")
 		} else {
 			msgpars = []string{""}
@@ -259,8 +274,8 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 		return
 	}
 
-	if cmd == REPORT_IGNOREWARNING {
-		cmd = REPORT
+	if cmd == ReportIgnorewarning {
+		cmd = Report
 	}
 
 	// Create a new connection
@@ -282,7 +297,7 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 	// Create Command to Send to spamd
 	cmd += " SPAMC/" + s.ProtocolVersion + "\r\n"
 	cmd += "Content-length: " + fmt.Sprintf("%v\r\n", len(msgpars[0])+2)
-	//Process Extra Headers if Any
+	// Process Extra Headers if Any
 	if len(*extraHeaders) > 0 {
 		for hname, hvalue := range *extraHeaders {
 			cmd = cmd + hname + ": " + hvalue + "\r\n"
@@ -301,7 +316,7 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 	return
 }
 
-//SpamD reply processor
+// SpamD reply processor
 func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err error) {
 	defer func() {
 		data.UnreadByte()
@@ -309,7 +324,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 
 	returnObj = new(SpamDOut)
 	returnObj.Code = -1
-	//read the first line
+	// read the first line
 	line, _, _ := data.ReadLine()
 	lineStr := string(line)
 
@@ -319,7 +334,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 		if cmd != "SKIP" {
 			err = errors.New("spamd unreconized reply:" + lineStr)
 		} else {
-			returnObj.Code = EX_OK
+			returnObj.Code = ExOK
 			returnObj.Message = "SKIPPED"
 		}
 		return
@@ -327,7 +342,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 	returnObj.Code, _ = strconv.Atoi(result[2])
 	returnObj.Message = result[3]
 
-	//verify a mapped error...
+	// verify a mapped error...
 	if SpamDError[returnObj.Code] != "" {
 		err = errors.New(SpamDError[returnObj.Code])
 		returnObj.Vars = make(map[string]interface{})
@@ -336,8 +351,8 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 	}
 	returnObj.Vars = make(map[string]interface{})
 
-	//start didSet
-	if cmd == TELL {
+	// start didSet
+	if cmd == Tell {
 		returnObj.Vars["didSet"] = false
 		returnObj.Vars["didRemove"] = false
 		for {
@@ -359,10 +374,10 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 		}
 		return
 	}
-	//read the second line
+	// read the second line
 	line, _, err = data.ReadLine()
 
-	//finish here if line is empty
+	// finish here if line is empty
 	if len(line) == 0 {
 		if err == io.EOF {
 			err = nil
@@ -370,15 +385,15 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 		return
 	}
 
-	//ignore content-length header..
+	// ignore content-length header..
 	lineStr = string(line)
 	switch cmd {
 
-	case SYMBOLS, CHECK, REPORT, REPORT_IFSPAM, REPORT_IGNOREWARNING, PROCESS, HEADERS:
+	case Symbols, Check, Report, ReportIfspam, ReportIgnorewarning, Process, Headers:
 
 		switch cmd {
-		case SYMBOLS, REPORT, REPORT_IFSPAM, REPORT_IGNOREWARNING, PROCESS, HEADERS:
-			//ignore content-length header..
+		case Symbols, Report, ReportIfspam, ReportIgnorewarning, Process, Headers:
+			// ignore content-length header..
 			line, _, err = data.ReadLine()
 			lineStr = string(line)
 		}
@@ -397,7 +412,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 		}
 
 		switch cmd {
-		case PROCESS, HEADERS:
+		case Process, Headers:
 			lines := ""
 			for {
 				line, _, err = data.ReadLine()
@@ -410,16 +425,15 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 				lines += string(line) + "\r\n"
 				returnObj.Vars["body"] = lines
 			}
-			return
-		case SYMBOLS:
-			//ignore line break...
+		case Symbols:
+			// ignore line break...
 			data.ReadLine()
-			//read
+			// read
 			line, _, err = data.ReadLine()
 			returnObj.Vars["symbolList"] = strings.Split(string(line), ",")
 
-		case REPORT, REPORT_IFSPAM, REPORT_IGNOREWARNING:
-			//ignore line break...
+		case Report, ReportIfspam, ReportIgnorewarning:
+			// ignore line break...
 			data.ReadLine()
 
 			for {
@@ -428,33 +442,33 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 				if len(line) > 0 {
 					lineStr = string(line)
 
-					//TXT Table found, prepare to parse..
-					if lineStr[0:4] == TABLE_MARK {
+					// TXT Table found, prepare to parse..
+					if lineStr[0:4] == TableMark {
 
 						section := []map[string]interface{}{}
 						tt := 0
 						for {
 							line, _, err = data.ReadLine()
-							//Stop read the text table if last line or Void line
+							// Stop read the text table if last line or Void line
 							if err == io.EOF || err != nil || len(line) == 0 {
 								if err == io.EOF {
 									err = nil
 								}
 								break
 							}
-							//Parsing
+							// Parsing
 							lineStr = string(line)
 							spc := 2
 							if lineStr[0:1] == "-" {
 								spc = 1
 							}
-							lineStr = strings.Replace(lineStr, " ", SPLIT, spc)
-							lineStr = strings.Replace(lineStr, " ", SPLIT, 1)
+							lineStr = strings.Replace(lineStr, " ", Split, spc)
+							lineStr = strings.Replace(lineStr, " ", Split, 1)
 							if spc > 1 {
 								lineStr = " " + lineStr[2:]
 							}
-							x := strings.Split(lineStr, SPLIT)
-							if lineStr[1:3] == SPLIT {
+							x := strings.Split(lineStr, Split)
+							if lineStr[1:3] == Split {
 								section[tt-1]["message"] = fmt.Sprintf("%v %v", section[tt-1]["message"], strings.TrimSpace(lineStr[5:]))
 							} else {
 								if len(x) != 0 {
@@ -471,7 +485,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 								}
 							}
 						}
-						if REPORT_IGNOREWARNING == cmd {
+						if ReportIgnorewarning == cmd {
 							nsection := []map[string]interface{}{}
 							for _, c := range section {
 								if c["score"].(float64) != 0 {
