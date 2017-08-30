@@ -4,7 +4,6 @@
 package spamc
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"strings"
@@ -134,18 +133,22 @@ func (s *Client) Process(msgpars ...string) (*Response, error) {
 // This includes setting or removing a local or a remote database (learning,
 // reporting, forgetting, revoking).
 func (s *Client) Tell(msgpars []string, headers *map[string]string) (*Response, error) {
-	return s.call(CmdTell, msgpars, func(data *bufio.Reader) (*Response, error) {
-		r, err := processResponse(CmdTell, data)
-		if err != nil {
-			return nil, err
-		}
+	read, err := s.call(CmdTell, msgpars, headers)
+	defer read.Close() // nolint: errcheck
+	if err != nil {
+		return nil, err
+	}
 
-		if r.Code == ExUnavailable {
-			return nil, errors.New("TELL commands are not enabled, set the --allow-tell switch")
-		}
+	r, err := processResponse(CmdTell, read)
+	if err != nil {
+		return nil, err
+	}
 
-		return r, nil
-	}, headers)
+	if r.Code == ExUnavailable {
+		return nil, errors.New("TELL commands are not enabled, set the --allow-tell switch")
+	}
+
+	return r, nil
 }
 
 // Headers is the same as Process() but returns only modified headers and not

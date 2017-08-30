@@ -49,22 +49,27 @@ func dbg(s string, f ...interface{}) {
 
 // wrapper to simple calls
 func (s *Client) simpleCall(cmd string, msgpars []string) (*Response, error) {
-	return s.call(cmd, msgpars, func(data *bufio.Reader) (*Response, error) {
-		r, err := processResponse(cmd, data)
-		if r.Code == ExOK {
-			err = nil
-		}
-		return r, err
-	}, nil)
+	read, err := s.call(cmd, msgpars, nil)
+	defer read.Close() // nolint: errcheck
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := processResponse(cmd, read)
+	if r.Code == ExOK {
+		err = nil
+	}
+	return r, err
 }
 
-// here a TCP socket is created to call SPAMD
+// Open a connection to spamd and send a command.
+//
+// It returns a reader from which you can read spamd's response.
 func (s *Client) call(
 	cmd string,
 	msgpars []string,
-	onData func(*bufio.Reader) (*Response, error),
 	extraHeaders *map[string]string,
-) (*Response, error) {
+) (io.ReadCloser, error) {
 
 	if extraHeaders == nil {
 		extraHeaders = &map[string]string{}
@@ -95,14 +100,15 @@ func (s *Client) call(
 	// Create a new connection
 	stream, err := net.DialTimeout("tcp", s.host, s.timeout)
 	if err != nil {
+		stream.Close() // nolint: errcheck
 		return nil, fmt.Errorf("connection dial error to spamd: %v", err)
 	}
 	// Set connection timeout
 	errTimeout := stream.SetDeadline(time.Now().Add(s.timeout))
 	if errTimeout != nil {
+		stream.Close() // nolint: errcheck
 		return nil, fmt.Errorf("connection to spamd timed out: %v", errTimeout)
 	}
-	defer stream.Close() // nolint: errcheck
 
 	// Create Command to Send to spamd
 	cmd += " SPAMC/" + s.protocolVersion + "\r\n"
@@ -118,11 +124,11 @@ func (s *Client) call(
 	dbg("sending:\n%v\nsending END\n", cmd)
 	_, errwrite := stream.Write([]byte(cmd))
 	if errwrite != nil {
+		stream.Close() // nolint: errcheck
 		return nil, errors.New("spamd returned a error: " + errwrite.Error())
 	}
 
-	// Execute onData callback throwing the buffer like parameter
-	return onData(bufio.NewReader(stream))
+	return stream, nil
 }
 
 var (
@@ -131,7 +137,8 @@ var (
 )
 
 // SpamD reply processor
-func processResponse(cmd string, data *bufio.Reader) (*Response, error) {
+func processResponse(cmd string, read io.Reader) (*Response, error) {
+	data := bufio.NewReader(read)
 	defer data.UnreadByte() // nolint: errcheck
 
 	returnObj := new(Response)
@@ -201,7 +208,13 @@ func processResponse(cmd string, data *bufio.Reader) (*Response, error) {
 	lineStr = string(line)
 	switch cmd {
 
-	case CmdSymbols, CmdCheck, CmdReport, CmdReportIfspam, CmdReportIgnorewarning, CmdProcess, CmdHeaders:
+	case CmdSymbols,
+		CmdCheck,
+		CmdReport,
+		CmdReportIfspam,
+		CmdReportIgnorewarning,
+		CmdProcess,
+		CmdHeaders:
 
 		switch cmd {
 		case CmdSymbols, CmdReport, CmdReportIfspam, CmdReportIgnorewarning, CmdProcess, CmdHeaders:
