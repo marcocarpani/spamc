@@ -37,7 +37,7 @@ const (
 // Default parameters.
 const (
 	ProtocolVersion = "1.5"
-	DefaultTimeout  = 10
+	DefaultTimeout  = 20 * time.Second
 )
 
 // Command types.
@@ -102,7 +102,7 @@ var SpamDError = map[int]string{
 
 // Client is a connection to the spamd daemon.
 type Client struct {
-	ConnTimoutSecs  int
+	Timeout         time.Duration
 	ProtocolVersion string
 	Host            string
 	User            string
@@ -119,8 +119,16 @@ type SpamDOut struct {
 type FnCallback func(*bufio.Reader) (*SpamDOut, error)
 
 // New instance of Client.
-func New(host string, timeout int) *Client {
-	return &Client{timeout, ProtocolVersion, host, ""}
+func New(host string, timeout time.Duration) *Client {
+	if timeout == 0 {
+		timeout = DefaultTimeout
+	}
+	return &Client{
+		Timeout:         timeout,
+		ProtocolVersion: ProtocolVersion,
+		Host:            host,
+		User:            "",
+	}
 }
 
 // SetUnixUser sets the "User" on the client.
@@ -279,15 +287,13 @@ func (s *Client) call(cmd string, msgpars []string, onData FnCallback, extraHead
 	}
 
 	// Create a new connection
-	stream, err := net.Dial("tcp", s.Host)
-
+	stream, err := net.DialTimeout("tcp", s.Host, s.Timeout)
 	if err != nil {
 		err = errors.New("Connection dial error to spamd: " + err.Error())
 		return
 	}
 	// Set connection timeout
-	timeout := time.Now().Add(time.Duration(s.ConnTimoutSecs) * time.Duration(time.Second))
-	errTimeout := stream.SetDeadline(timeout)
+	errTimeout := stream.SetDeadline(time.Now().Add(s.Timeout))
 	if errTimeout != nil {
 		err = errors.New("Connection to spamd Timed Out:" + errTimeout.Error())
 		return
@@ -332,7 +338,7 @@ func processResponse(cmd string, data *bufio.Reader) (returnObj *SpamDOut, err e
 	var result = r.FindStringSubmatch(lineStr)
 	if len(result) < 4 {
 		if cmd != "SKIP" {
-			err = errors.New("spamd unreconized reply:" + lineStr)
+			err = errors.New("spamd unrecognised reply:" + lineStr)
 		} else {
 			returnObj.Code = ExOK
 			returnObj.Message = "SKIPPED"
