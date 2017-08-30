@@ -19,34 +19,19 @@ It can:
 Migrating from saintienn/go-spamc
 ---------------------------------
 
-This is **not** a drop-in replacement; there are some minor changes:
+This is **not** a drop-in replacement; there are various changes to the API. See
+godoc.
 
-- `New()` now takes a `time.Duration()` as its timeout, instead of an `int` and
-  if it's `0` it will use the default timeout of 20 seconds.
+The biggest caveat is that `New()` now takes a `time.Duration()` as its timeout,
+instead of an `int` and if it's `0` it will use the default timeout of 20
+seconds.
 
-  So add `* time.Second` to convert it to a `time.Duration`.
+So add `* time.Second` to convert it to a `time.Duration`.
 
-Example
--------
+Runnings tests
+--------------
 
-```go
-package main
-
-import (
-	"fmt"
-	"spamc"
-)
-
-func main() {
-
-	html := "<html>Hello world. I'm not a Spam, don't kill me SpamAssassin!</html>"
-	client := spamc.New("127.0.0.1:783",10)
-
-	//the 2nd parameter is optional, you can set who (the unix user) do the call
-	reply, _ := client.Check(html, "saintienn")
-
-	fmt.Println(reply.Code)
-	fmt.Println(reply.Message)
-	fmt.Println(reply.Vars)
-}
-```
+Tests rely on a running SpamAssassin instance, whose hostname address is
+indicated by the `SPAMC_SA_ADDRESS` environment variable. There is a
+`Dockerfile` which will run a basic SpamAssassin setup. The `./bin/test` script
+will build and run it, run tests, and stop the container.
