@@ -69,8 +69,8 @@ type CheckResponse struct {
 }
 
 // Check if the passed message is spam.
-func (c *Client) Check(msgpars ...string) (*CheckResponse, error) {
-	read, err := c.call("CHECK", msgpars, nil)
+func (c *Client) Check(msg, user string) (*CheckResponse, error) {
+	read, err := c.call("CHECK", msg, user, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -119,34 +119,34 @@ func (c *Client) Check(msgpars ...string) (*CheckResponse, error) {
 
 // Symbols check if message is spam and return the score and a list of all
 // symbols that were hit.
-func (c *Client) Symbols(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdSymbols, msgpars)
+func (c *Client) Symbols(msg, user string) (*Response, error) {
+	return c.simpleCall(CmdSymbols, msg, user)
 }
 
 // Report checks if the message is spam and returns the score plus report.
-func (c *Client) Report(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdReport, msgpars)
+func (c *Client) Report(msg, user string) (*Response, error) {
+	return c.simpleCall(CmdReport, msg, user)
 }
 
 // ReportIfSpam checks if the message is spam and returns the score plus report
 // if the message is spam.
-func (c *Client) ReportIfSpam(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdReportIfspam, msgpars)
+func (c *Client) ReportIfSpam(msg, user string) (*Response, error) {
+	return c.simpleCall(CmdReportIfspam, msg, user)
 }
 
 // Skip ignores this message: client opened connection then changed its mind.
-func (c *Client) Skip(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdSkip, msgpars)
+func (c *Client) Skip(msg, user string) (*Response, error) {
+	return c.simpleCall(CmdSkip, msg, user)
 }
 
 // Ping returns a confirmation that spamd is alive.
 func (c *Client) Ping() (*Response, error) {
-	return c.simpleCall(CmdPing, []string{})
+	return c.simpleCall(CmdPing, "", "")
 }
 
 // Process this message and return a modified message.
-func (c *Client) Process(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdProcess, msgpars)
+func (c *Client) Process(msg, user string) (*Response, error) {
+	return c.simpleCall(CmdProcess, msg, user)
 }
 
 // Tell what type of we are to process and what should be done with that
@@ -154,8 +154,8 @@ func (c *Client) Process(msgpars ...string) (*Response, error) {
 //
 // This includes setting or removing a local or a remote database (learning,
 // reporting, forgetting, revoking).
-func (c *Client) Tell(msgpars []string, headers *map[string]string) (*Response, error) {
-	read, err := c.call(CmdTell, msgpars, headers)
+func (c *Client) Tell(msg, user string, headers *map[string]string) (*Response, error) {
+	read, err := c.call(CmdTell, msg, user, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		return nil, err
@@ -176,15 +176,15 @@ func (c *Client) Tell(msgpars []string, headers *map[string]string) (*Response, 
 
 // Headers is the same as Process() but returns only modified headers and not
 // the body.
-func (c *Client) Headers(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdHeaders, msgpars)
+func (c *Client) Headers(msg, user string) (*Response, error) {
+	return c.simpleCall(CmdHeaders, msg, user)
 }
 
 // Learn if a message is spam. This is a more convenient wrapper around SA's
 // "TELL" command.
 //
 // Use one of the Learn* constants as the learnType.
-func (c *Client) Learn(learnType string, msgpars ...string) (*Response, error) {
+func (c *Client) Learn(learnType string, msg, user string) (*Response, error) {
 	headers := make(map[string]string)
 	switch strings.ToUpper(learnType) {
 	case LearnSpam:
@@ -198,7 +198,7 @@ func (c *Client) Learn(learnType string, msgpars ...string) (*Response, error) {
 	default:
 		return nil, fmt.Errorf("unknown learn type: %v", learnType)
 	}
-	return c.Tell(msgpars, &headers)
+	return c.Tell(msg, user, &headers)
 }
 
 // ReportIgnoreWarning checks if message is spam, and return score plus report
@@ -210,6 +210,6 @@ func (c *Client) ReportIgnoreWarning(msgpars ...string) (*Response, error) {
 */
 
 // SimpleCall sends a command to SpamAssassin.
-func (c *Client) SimpleCall(cmd string, msgpars ...string) (*Response, error) {
-	return c.simpleCall(strings.ToUpper(cmd), msgpars)
+func (c *Client) SimpleCall(cmd string, msg, user string) (*Response, error) {
+	return c.simpleCall(strings.ToUpper(cmd), msg, user)
 }

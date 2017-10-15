@@ -55,8 +55,8 @@ var errorMessages = map[int]string{
 }
 
 // wrapper to simple calls
-func (c *Client) simpleCall(cmd string, msgpars []string) (*Response, error) {
-	read, err := c.call(cmd, msgpars, nil)
+func (c *Client) simpleCall(cmd, msg, user string) (*Response, error) {
+	read, err := c.call(cmd, msg, user, nil)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		return nil, err
@@ -69,8 +69,7 @@ func (c *Client) simpleCall(cmd string, msgpars []string) (*Response, error) {
 //
 // It returns a reader from which you can read spamd's response.
 func (c *Client) call(
-	cmd string,
-	msgpars []string,
+	cmd, msg, user string,
 	extraHeaders *map[string]string,
 ) (io.ReadCloser, error) {
 
@@ -78,23 +77,13 @@ func (c *Client) call(
 		extraHeaders = &map[string]string{}
 	}
 
-	switch len(msgpars) {
-	case 1:
-		if c.DefaultUser != "" {
-			x := *extraHeaders
-			x["User"] = c.DefaultUser
-			*extraHeaders = x
-		}
-	case 2:
-		x := *extraHeaders
-		x["User"] = msgpars[1]
-		*extraHeaders = x
-	default:
-		if cmd != CmdPing {
-			return nil, errors.New("message parameters wrong size")
-		}
-		msgpars = []string{""}
+	if user == "" {
+		user = c.DefaultUser
 	}
+
+	x := *extraHeaders
+	x["User"] = user
+	*extraHeaders = x
 
 	if cmd == CmdReportIgnorewarning {
 		cmd = CmdReport
@@ -108,14 +97,14 @@ func (c *Client) call(
 
 	// Create Command to Send to spamd
 	cmd += " SPAMC/" + clientProtocolVersion + "\r\n"
-	cmd += "Content-length: " + fmt.Sprintf("%v\r\n", len(msgpars[0])+2)
+	cmd += "Content-length: " + fmt.Sprintf("%v\r\n", len(msg)+2)
 	// Process Extra Headers if Any
 	if len(*extraHeaders) > 0 {
 		for hname, hvalue := range *extraHeaders {
 			cmd = cmd + hname + ": " + hvalue + "\r\n"
 		}
 	}
-	cmd += "\r\n" + msgpars[0] + "\r\n\r\n"
+	cmd += "\r\n" + msg + "\r\n\r\n"
 
 	_, errwrite := stream.Write([]byte(cmd))
 	if errwrite != nil {
