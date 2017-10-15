@@ -101,19 +101,9 @@ func (c *Client) call(
 	}
 
 	// Create a new connection
-	stream, err := net.DialTimeout("tcp", c.host, c.timeout)
+	stream, err := c.dial()
 	if err != nil {
-		if stream != nil {
-			stream.Close() // nolint: errcheck
-		}
-		return nil, fmt.Errorf("connection dial error to spamd: %v", err)
-	}
-
-	// Set connection timeout
-	errTimeout := stream.SetDeadline(time.Now().Add(c.timeout))
-	if errTimeout != nil {
-		stream.Close() // nolint: errcheck
-		return nil, fmt.Errorf("connection to spamd timed out: %v", errTimeout)
+		return nil, err
 	}
 
 	// Create Command to Send to spamd
@@ -381,7 +371,8 @@ func (c *Client) dial() (net.Conn, error) {
 	}
 
 	// Set connection timeout
-	if err := conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
+	err = conn.SetDeadline(time.Now().Add(c.timeout))
+	if err != nil {
 		conn.Close() // nolint: errcheck
 		return nil, fmt.Errorf("connection to spamd timed out: %v", err)
 	}
