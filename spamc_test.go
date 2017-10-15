@@ -36,7 +36,10 @@ func (c tconn) SetWriteDeadline(t time.Time) error { return nil }
 func TestWrite(t *testing.T) {
 	conn := tconn{}
 	client := Client{}
-	client.write(conn, "CMD", "The message", "user", nil)
+	err := client.write(conn, "CMD", "The message", "user", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	out := string(data)
 	expected := "SPAMC/1.5\r\nContent-Length: 13\r\n\r\nThe message\r\n"

@@ -384,17 +384,39 @@ func (c *Client) write(conn net.Conn, cmd, message, user string, headers textpro
 	buf := bytes.NewBufferString("")
 	w := bufio.NewWriter(buf)
 	tp := textproto.NewWriter(w)
-	tp.PrintfLine("SPAMC/%v", clientProtocolVersion)
-	tp.PrintfLine("Content-Length: %v", len(message)+2)
+
+	err := tp.PrintfLine("SPAMC/%v", clientProtocolVersion)
+	if err != nil {
+		return err
+	}
+
+	err = tp.PrintfLine("Content-Length: %v", len(message)+2)
+	if err != nil {
+		return err
+	}
+
 	// TODO: Write user?
 	for k, vals := range headers {
 		for _, v := range vals {
-			tp.PrintfLine("%v: %v", k, v)
+			err := tp.PrintfLine("%v: %v", k, v)
+			if err != nil {
+				return err
+			}
 		}
 	}
-	tp.PrintfLine("")
-	tp.W.WriteString(strings.TrimSpace(message) + "\r\n")
-	tp.W.Flush()
+	err = tp.PrintfLine("")
+	if err != nil {
+		return err
+	}
+
+	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n")
+	if err != nil {
+		return err
+	}
+	err = tp.W.Flush()
+	if err != nil {
+		return err
+	}
 
 	d, _ := ioutil.ReadAll(buf)
 	if _, err := conn.Write(d); err != nil {
