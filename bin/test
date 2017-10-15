@@ -17,4 +17,4 @@ export GORACE="history_size=4"
 
 $pre_test_func
 
-go test -v -race $test_tags $(go list ./... | grep -v /vendor/)
+go test -v -race "$test_tags" $(go list ./... | grep -v /vendor/)

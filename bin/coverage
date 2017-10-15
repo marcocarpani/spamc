@@ -16,10 +16,10 @@ root="$(cd "$(dirname "$0")/.." && pwd | sed s,/Teamwork/,/teamwork/,)"
 find_deps() {
 	(
 		echo "$1"
-		go list $test_tags -f $'{{range $f := .Deps}}{{$f}}\n{{end}}' "$1"
-		go list $test_tags -f $'{{range $f := .TestImports}}{{$f}}\n{{end}}' "$1" |
+		go list "$test_tags" -f $'{{range $f := .Deps}}{{$f}}\n{{end}}' "$1"
+		go list "$test_tags" -f $'{{range $f := .TestImports}}{{$f}}\n{{end}}' "$1" |
 			while read imp; do
-				go list $test_tags -f $'{{range $f := .Deps}}{{$f}}\n{{end}}' "$imp";
+				go list "$test_tags" -f $'{{range $f := .Deps}}{{$f}}\n{{end}}' "$imp";
 			done
 	) | sort -u | grep ^$pkgname | grep -Ev "^$pkgname/(vendor|test)" |
 		tr '\n' ' ' | sed 's/ $//' | tr ' ' ','
@@ -34,13 +34,13 @@ test_pkgs=$(find -name "*_test.go" |
 	sed -e "s#^\.#$pkgname#")
 
 # Cache
-go test -i -cover -covermode=set $test_tags $(go list ./... | grep -v /vendor/)
+go test -i -cover -covermode=set "$test_tags" $(go list ./... | grep -v /vendor/)
 
 $pre_test_func
 
 for pkg in $test_pkgs; do
 	go test \
-		$test_tags \
+		"$test_tags" \
 		-coverprofile=profile.out \
 		-covermode=set \
 		-coverpkg=$(find_deps "$pkg") \

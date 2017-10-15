@@ -1,3 +1,5 @@
+// +build testsa
+
 package spamc
 
 import (
