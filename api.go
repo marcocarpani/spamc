@@ -10,15 +10,14 @@ import (
 
 // Command types.
 const (
-	CmdSymbols             = "SYMBOLS"
-	CmdReport              = "REPORT"
-	CmdReportIgnorewarning = "REPORT_IGNOREWARNING"
-	CmdReportIfspam        = "REPORT_IFSPAM"
-	CmdSkip                = "SKIP"
-	CmdPing                = "PING"
-	CmdTell                = "TELL"
-	CmdProcess             = "PROCESS"
-	CmdHeaders             = "HEADERS"
+	CmdSymbols      = "SYMBOLS"
+	CmdReport       = "REPORT"
+	CmdReportIfspam = "REPORT_IFSPAM"
+	CmdSkip         = "SKIP"
+	CmdPing         = "PING"
+	CmdTell         = "TELL"
+	CmdProcess      = "PROCESS"
+	CmdHeaders      = "HEADERS"
 )
 
 // Learn types.
@@ -200,14 +199,6 @@ func (c *Client) Learn(learnType string, msg, user string) (*Response, error) {
 	}
 	return c.Tell(msg, user, &headers)
 }
-
-// ReportIgnoreWarning checks if message is spam, and return score plus report
-/*
-* TODO: Not in spamd protocol? Figure out what this does.
-func (c *Client) ReportIgnoreWarning(msgpars ...string) (*Response, error) {
-	return c.simpleCall(CmdReportIgnorewarning, msgpars)
-}
-*/
 
 // SimpleCall sends a command to SpamAssassin.
 func (c *Client) SimpleCall(cmd string, msg, user string) (*Response, error) {

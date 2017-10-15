@@ -85,10 +85,6 @@ func (c *Client) call(
 	x["User"] = user
 	*extraHeaders = x
 
-	if cmd == CmdReportIgnorewarning {
-		cmd = CmdReport
-	}
-
 	// Create a new connection
 	stream, err := c.dial()
 	if err != nil {
@@ -203,12 +199,11 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 		//CmdCheck,
 		CmdReport,
 		CmdReportIfspam,
-		CmdReportIgnorewarning,
 		CmdProcess,
 		CmdHeaders:
 
 		switch cmd {
-		case CmdSymbols, CmdReport, CmdReportIfspam, CmdReportIgnorewarning, CmdProcess, CmdHeaders:
+		case CmdSymbols, CmdReport, CmdReportIfspam, CmdProcess, CmdHeaders:
 			// ignore content-length header..
 			line, _, err = data.ReadLine()
 			lineStr = string(line)
@@ -254,7 +249,7 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 			}
 			returnObj.Vars["symbolList"] = strings.Split(string(line), ",")
 
-		case CmdReport, CmdReportIfspam, CmdReportIgnorewarning:
+		case CmdReport, CmdReportIfspam:
 			// ignore line break...
 			_, _, err := data.ReadLine()
 			if err != nil {
@@ -309,15 +304,6 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 									tt++
 								}
 							}
-						}
-						if cmd == CmdReportIgnorewarning {
-							nsection := []map[string]interface{}{}
-							for _, c := range section {
-								if c["score"].(float64) != 0 {
-									nsection = append(nsection, c)
-								}
-							}
-							section = nsection
 						}
 
 						returnObj.Vars["report"] = section
