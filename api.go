@@ -30,14 +30,13 @@ const (
 
 // Client is a connection to the spamd daemon.
 type Client struct {
-	timeout time.Duration
-	host    string
-	User    string
+	timeout     time.Duration
+	host        string
+	DefaultUser string
 }
 
 // Response is the default response struct.
 type Response struct {
-	Code    int // TODO: Don't need this, non-OK is an error.
 	Message string
 	Vars    map[string]interface{}
 }
@@ -48,17 +47,10 @@ func New(host string, timeout time.Duration) *Client {
 		timeout = defaultTimeout
 	}
 	return &Client{
-		timeout: timeout,
-		host:    host,
-		User:    "",
+		timeout:     timeout,
+		host:        host,
+		DefaultUser: "",
 	}
-}
-
-// SetUnixUser sets the "User" on the client.
-//
-// TODO: Document what this does, exactly.
-func (c *Client) SetUnixUser(user string) {
-	c.User = user
 }
 
 // CheckResponse is the response from the Check command.
@@ -171,11 +163,12 @@ func (c *Client) Tell(msgpars []string, headers *map[string]string) (*Response, 
 
 	r, err := processResponse(CmdTell, read)
 	if err != nil {
-		return nil, err
-	}
+		if serr, ok := err.(Error); ok && serr.Code == 69 {
+			return nil, errors.New(
+				"TELL commands are not enabled, set the --allow-tell switch")
+		}
 
-	if r.Code == 69 {
-		return nil, errors.New("TELL commands are not enabled, set the --allow-tell switch")
+		return nil, err
 	}
 
 	return r, nil

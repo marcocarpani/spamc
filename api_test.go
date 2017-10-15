@@ -37,9 +37,6 @@ func TestCommands(t *testing.T) {
 			if r == nil {
 				t.Fatal("r is nil")
 			}
-			if r.Code != 0 {
-				t.Errorf("Code != exOk: %v", r.Code)
-			}
 		})
 	}
 }
@@ -52,9 +49,6 @@ func TestPing(t *testing.T) {
 	}
 	if r == nil {
 		t.Fatal("r is nil")
-	}
-	if r.Code != 0 {
-		t.Errorf("Code != exOk: %v", r.Code)
 	}
 }
 
@@ -71,9 +65,6 @@ func TestTell(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
-	if r.Code != 0 {
-		t.Errorf("Code != exOk: %v", r.Code)
-	}
 }
 
 func TestLearn(t *testing.T) {
@@ -86,10 +77,6 @@ func TestLearn(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
-	if r.Code != 0 {
-		t.Errorf("Code != exOk: %v", r.Code)
-	}
-
 }
 
 func TestCheck(t *testing.T) {
@@ -102,5 +89,5 @@ func TestCheck(t *testing.T) {
 		t.Fatal("r is nil")
 	}
 
-	fmt.Printf("%#v\n", r)
+	//fmt.Printf("%#v\n", r)
 }

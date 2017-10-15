@@ -15,6 +15,16 @@ import (
 	"time"
 )
 
+// Error is used for spamd responses; it contains the spamd exit code.
+type Error struct {
+	msg  string
+	Code int64
+}
+
+func (e Error) Error() string {
+	return e.msg
+}
+
 const (
 	clientProtocolVersion = "1.5"
 	serverProtocolVersion = "1.1"
@@ -52,11 +62,7 @@ func (c *Client) simpleCall(cmd string, msgpars []string) (*Response, error) {
 		return nil, err
 	}
 
-	r, err := processResponse(cmd, read)
-	if r.Code == 0 {
-		err = nil
-	}
-	return r, err
+	return processResponse(cmd, read)
 }
 
 // Open a connection to spamd and send a command.
@@ -74,9 +80,9 @@ func (c *Client) call(
 
 	switch len(msgpars) {
 	case 1:
-		if c.User != "" {
+		if c.DefaultUser != "" {
 			x := *extraHeaders
-			x["User"] = c.User
+			x["User"] = c.DefaultUser
 			*extraHeaders = x
 		}
 	case 2:
@@ -102,6 +108,7 @@ func (c *Client) call(
 		}
 		return nil, fmt.Errorf("connection dial error to spamd: %v", err)
 	}
+
 	// Set connection timeout
 	errTimeout := stream.SetDeadline(time.Now().Add(c.timeout))
 	if errTimeout != nil {
@@ -134,39 +141,46 @@ var (
 	reFindScore     = regexp.MustCompile(`(?i)Spam:\s(True|False|Yes|No)\s;\s(-?[0-9\.]+)\s\/\s(-?[0-9\.]+)`)
 )
 
-// SpamD reply processor.
+// Spamd reply processor.
 func processResponse(cmd string, read io.Reader) (*Response, error) {
 	data := bufio.NewReader(read)
 	defer data.UnreadByte() // nolint: errcheck
 
-	returnObj := new(Response)
-	returnObj.Code = -1
-	// read the first line
+	// Read the first line.
 	line, _, _ := data.ReadLine()
 	lineStr := string(line)
-	var err error
 
 	var result = reParseResponse.FindStringSubmatch(lineStr)
 	if len(result) < 4 {
 		if cmd != "SKIP" {
-			err = errors.New("spamd unrecognised reply:" + lineStr)
-		} else {
-			returnObj.Code = 0
-			returnObj.Message = "SKIPPED"
+			return nil, fmt.Errorf("spamd unrecognised reply: %v", lineStr)
 		}
-		return returnObj, err
+		return &Response{
+			Message: "SKIPPED",
+		}, nil
 	}
-	returnObj.Code, _ = strconv.Atoi(result[2])
-	returnObj.Message = result[3]
 
-	// verify a mapped error...
-	if errorMessages[returnObj.Code] != "" {
-		err = errors.New(errorMessages[returnObj.Code])
-		returnObj.Vars = make(map[string]interface{})
-		returnObj.Vars["error_description"] = errorMessages[returnObj.Code]
+	returnCode, err := strconv.Atoi(result[2])
+	if err != nil {
+		return nil, fmt.Errorf("could not read spamd code: %v", err)
+	}
+
+	returnObj := &Response{
+		Message: result[3],
+		Vars:    make(map[string]interface{}),
+	}
+
+	// spamd returned code != 0
+	if returnCode > 0 {
+		if errorMessages[returnCode] != "" {
+			err = fmt.Errorf("spamd code %v: %v",
+				returnCode, errorMessages[returnCode])
+		} else {
+			err = fmt.Errorf("spamd code %v (unknown)", returnCode)
+		}
+		returnObj.Vars["error_description"] = errorMessages[returnCode]
 		return returnObj, err
 	}
-	returnObj.Vars = make(map[string]interface{})
 
 	// start didSet
 	if cmd == CmdTell {
