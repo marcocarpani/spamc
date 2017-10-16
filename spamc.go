@@ -99,8 +99,7 @@ func (c *Client) write(
 	}
 
 	// Always add Content-length header.
-	// TODO: Is the +2 always required?
-	err = tp.PrintfLine("Content-length: %v", len(message)+2)
+	err = tp.PrintfLine("Content-length: %v", len(message))
 	if err != nil {
 		return err
 	}
@@ -120,7 +119,7 @@ func (c *Client) write(
 	}
 
 	// Write body.
-	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n\r\n")
+	_, err = tp.W.WriteString(message)
 	if err != nil {
 		return err
 	}
