@@ -250,3 +250,48 @@ loop:
 
 	return body, nil
 }
+
+// Parse the Spam: response header:
+//    Spam <yes|no> ; <score> / <base-score>
+// example:
+//    Spam: yes ; 6.66 / 5.0
+func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
+	spam, ok := respHeaders["Spam"]
+	if !ok || len(spam) == 0 {
+		return false, 0, 0, errors.New("header missing")
+	}
+
+	if len(spam[0]) == 0 {
+		return false, 0, 0, errors.New("header empty")
+	}
+
+	s := strings.Split(spam[0], ";")
+	if len(s) != 2 {
+		return false, 0, 0, fmt.Errorf("unexpected data: %v", spam[0])
+	}
+
+	isSpam := false
+	switch strings.ToLower(strings.TrimSpace(s[0])) {
+	case "true", "yes":
+		isSpam = true
+	case "false", "no":
+		isSpam = false
+	default:
+		return false, 0, 0, fmt.Errorf("unknown spam status: %v", s[0])
+	}
+
+	split := strings.Split(s[1], "/")
+	if len(split) != 2 {
+		return false, 0, 0, fmt.Errorf("unexpected data: %v", s[1])
+	}
+	score, err := strconv.ParseFloat(strings.TrimSpace(split[0]), 64)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("could not parse spam score: %v", err)
+	}
+	baseScore, err := strconv.ParseFloat(strings.TrimSpace(split[1]), 64)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("could not parse base spam score: %v", err)
+	}
+
+	return isSpam, score, baseScore, nil
+}

@@ -58,7 +58,7 @@ func TestCheck(t *testing.T) {
 func TestSymbols(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *Response
+		want    *CheckResponse
 		wantErr string
 	}{
 		{
@@ -67,14 +67,11 @@ func TestSymbols(t *testing.T) {
 				"Spam: False ; 1.6 / 5.0\r\n" +
 				"\r\n" +
 				"INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS\r\n",
-			&Response{
-				Message: "EX_OK",
-				Vars: map[string]interface{}{
-					"isSpam":        false,
-					"spamScore":     1.6,
-					"baseSpamScore": 5.0,
-					"symbolList":    []string{"INVALID_DATE", "MISSING_HEADERS", "NO_RECEIVED", "NO_RELAYS"},
-				},
+			&CheckResponse{
+				IsSpam:    false,
+				Score:     1.6,
+				BaseScore: 5.0,
+				Symbols:   []string{"INVALID_DATE", "MISSING_HEADERS", "NO_RECEIVED", "NO_RELAYS"},
 			},
 			"",
 		},
