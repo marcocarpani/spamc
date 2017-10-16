@@ -3,10 +3,8 @@ package spamc
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,64 +16,13 @@ func (c *Client) simpleCall(
 	headers Header,
 ) (*Response, error) {
 
-	read, err := c.call(cmd, msg, headers)
+	read, err := c.send(context.TODO(), cmd, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		return nil, err
 	}
 
 	return processResponse(cmd, read)
-}
-
-// Open a connection to spamd and send a command.
-//
-// It returns a reader from which you can read spamd's response.
-func (c *Client) call(
-	cmd, msg string,
-	headers Header,
-) (io.ReadCloser, error) {
-
-	if headers == nil {
-		headers = make(Header)
-	}
-
-	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
-		headers.Add(HeaderUser, c.DefaultUser)
-	}
-
-	// Create a new connection
-	var conn net.Conn
-	if testConnHook != nil {
-		conn = testConnHook
-	} else {
-		var err error
-		conn, err = c.dial(context.Background())
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Create Command to Send to spamd
-	cmd += " SPAMC/" + clientProtocolVersion + "\r\n"
-	cmd += "Content-length: " + fmt.Sprintf("%v\r\n", len(msg)+2)
-
-	// Process Extra Headers if Any
-	if len(headers) > 0 {
-		for hname, hvalues := range headers {
-			for _, hvalue := range hvalues {
-				cmd = cmd + hname + ": " + hvalue + "\r\n"
-			}
-		}
-	}
-	cmd += "\r\n" + msg + "\r\n\r\n"
-
-	_, errwrite := conn.Write([]byte(cmd))
-	if errwrite != nil {
-		conn.Close() // nolint: errcheck
-		return nil, errors.New("spamd returned a error: " + errwrite.Error())
-	}
-
-	return conn, nil
 }
 
 var (
@@ -173,21 +120,17 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 	switch cmd {
 
 	case CmdSymbols,
-		//CmdCheck,
 		CmdReport,
 		CmdReportIfspam,
 		CmdProcess,
 		CmdHeaders:
 
-		switch cmd {
-		case CmdSymbols, CmdReport, CmdReportIfspam, CmdProcess, CmdHeaders:
-			// ignore content-length header..
-			line, _, err = data.ReadLine()
-			if show {
-				fmt.Println(string(line))
-			}
-			lineStr = string(line)
+		// ignore content-length header..
+		line, _, err = data.ReadLine()
+		if show {
+			fmt.Println(string(line))
 		}
+		lineStr = string(line)
 
 		var result = reFindScore.FindStringSubmatch(lineStr)
 

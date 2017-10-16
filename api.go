@@ -214,7 +214,7 @@ func (c *Client) Tell(
 	msg string,
 	headers Header,
 ) (*Response, error) {
-	read, err := c.call(CmdTell, msg, headers)
+	read, err := c.send(ctx, CmdTell, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		return nil, err
