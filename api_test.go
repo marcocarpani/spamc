@@ -18,13 +18,12 @@ func TestCommands(t *testing.T) {
 
 	cases := []struct {
 		name string
-		fun  func(string, string) (*Response, error)
+		fun  func(string, Header) (*Response, error)
 	}{
 		//{"Check", client.Check},
 		{"Skip", client.Skip},
 		{"Symbols", client.Symbols},
 		{"Report", client.Report},
-		//{"ReportIgnoreWarning", client.ReportIgnoreWarning},
 		{"ReportIfSpam", client.ReportIfSpam},
 		{"Process", client.Process},
 		{"Header", client.Headers},
@@ -32,7 +31,7 @@ func TestCommands(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%v", tc.name), func(t *testing.T) {
-			r, err := tc.fun(message, "")
+			r, err := tc.fun(message, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,9 +56,9 @@ func TestPing(t *testing.T) {
 func TestTell(t *testing.T) {
 	client := New(addr, 0)
 	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
-	r, err := client.Tell(message, "", &map[string]string{
-		"Message-class": "spam",
-		"Set":           "local",
+	r, err := client.Tell(message, Header{
+		"Message-class": []string{"spam"},
+		"Set":           []string{"local"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +71,7 @@ func TestTell(t *testing.T) {
 func TestLearn(t *testing.T) {
 	client := New(addr, 0)
 	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
-	r, err := client.Learn(LearnHam, message, "")
+	r, err := client.Learn(LearnHam, message, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +82,7 @@ func TestLearn(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Check("Penis viagra", "")
+	r, err := client.Check("Penis viagra", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,7 +36,7 @@ func (c tconn) SetWriteDeadline(t time.Time) error { return nil }
 func TestWrite(t *testing.T) {
 	conn := tconn{}
 	client := Client{}
-	err := client.write(conn, "CMD", "The message", "user", nil)
+	err := client.write(conn, "CMD", "The message", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestWrite(t *testing.T) {
 func TestReadResponse(t *testing.T) {
 	cases := []struct {
 		in             string
-		expectedHeader textproto.MIMEHeader
+		expectedHeader Header
 		expectedBody   string
 		expectedErr    string
 	}{
@@ -84,7 +84,7 @@ func TestReadResponse(t *testing.T) {
 			in: "SPAMD/1.1 0 EX_OK\r\n" +
 				"Header: value\r\n\r\n" +
 				"THE BODY",
-			expectedHeader: textproto.MIMEHeader{"Header": {"value"}},
+			expectedHeader: Header{"Header": {"value"}},
 			expectedBody:   "THE BODY\r\n",
 			expectedErr:    "",
 		},
