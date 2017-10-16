@@ -13,7 +13,7 @@ var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
 
 // Basic test to confirm that the commands return *something* until we have more
 // robust test in place.
-func TestCommands(t *testing.T) {
+func TestSACommands(t *testing.T) {
 	client := New(addr, 0)
 	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
 
@@ -43,7 +43,7 @@ func TestCommands(t *testing.T) {
 	}
 }
 
-func TestPing(t *testing.T) {
+func TestSAPing(t *testing.T) {
 	client := New(addr, 0)
 	r, err := client.Ping(context.Background())
 	if err != nil {
@@ -54,7 +54,7 @@ func TestPing(t *testing.T) {
 	}
 }
 
-func TestTell(t *testing.T) {
+func TestSATell(t *testing.T) {
 	client := New(addr, 0)
 	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
 	r, err := client.Tell(context.Background(), message, Header{
@@ -69,7 +69,7 @@ func TestTell(t *testing.T) {
 	}
 }
 
-func TestLearn(t *testing.T) {
+func TestSALearn(t *testing.T) {
 	client := New(addr, 0)
 	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
 	r, err := client.Learn(context.Background(), LearnHam, message, nil)
@@ -81,7 +81,7 @@ func TestLearn(t *testing.T) {
 	}
 }
 
-func TestCheck(t *testing.T) {
+func TestSACheck(t *testing.T) {
 	client := New(addr, 0)
 	r, err := client.Check(context.Background(), "Penis viagra", nil)
 	if err != nil {

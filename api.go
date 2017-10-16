@@ -49,6 +49,7 @@ type Response struct {
 type Error struct {
 	msg  string
 	Code int64
+	Line string
 }
 
 func (e Error) Error() string { return e.msg }
@@ -77,17 +78,17 @@ func NewWithDialer(host string, dialer net.Dialer) *Client {
 
 // CheckResponse is the response from the Check command.
 type CheckResponse struct {
-	Response
+	//Response
 
 	// IsSpam reports if this message is considered spam.
 	IsSpam bool
 
-	// SpamScore is the spam score of this message.
-	SpamScore float64
+	// Score is the spam score of this message.
+	Score float64
 
-	// BaseSpamScore is the "minimum spam score" configured on the server. This
+	// BaseScore is the "minimum spam score" configured on the server. This
 	// is usually 5.0.
-	BaseSpamScore float64
+	BaseScore float64
 }
 
 // Check if the passed message is spam.
@@ -96,8 +97,7 @@ func (c *Client) Check(
 	msg string, headers Header,
 ) (*CheckResponse, error) {
 
-	//read, err := c.send(ctx, "CHECK", msg, headers)
-	read, err := c.call("CHECK", msg, headers)
+	read, err := c.send(ctx, "CHECK", msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -108,6 +108,8 @@ func (c *Client) Check(
 		return nil, fmt.Errorf("could not parse spamd response: %v", err)
 	}
 
+	// Spam <yes|no> <score> / <base-score>
+	// Spam: yes; 6.66 / 5.0
 	spam, ok := respHeaders["Spam"]
 	if !ok || len(spam) == 0 {
 		return nil, errors.New("Spam header missing in response")
@@ -132,12 +134,11 @@ func (c *Client) Check(
 	if len(score) != 2 {
 		return nil, fmt.Errorf("unexpected data: %v", s[1])
 	}
-	// TODO: make sure negative scores work.
-	r.SpamScore, err = strconv.ParseFloat(strings.TrimSpace(score[0]), 32)
+	r.Score, err = strconv.ParseFloat(strings.TrimSpace(score[0]), 64)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse spam score: %v", err)
 	}
-	r.BaseSpamScore, err = strconv.ParseFloat(strings.TrimSpace(score[1]), 32)
+	r.BaseScore, err = strconv.ParseFloat(strings.TrimSpace(score[1]), 64)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse base spam score: %v", err)
 	}

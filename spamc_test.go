@@ -3,74 +3,52 @@ package spamc
 import (
 	"bufio"
 	"fmt"
-	"net"
 	"net/textproto"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
 )
 
-type tconn struct {
-	data []byte
-}
-
-var data []byte
-
-func (c tconn) Write(b []byte) (n int, err error) {
-	c.data = append(c.data, b...)
-	data = append(data, b...)
-	return 0, nil
-}
-
-func (c tconn) Read(b []byte) (n int, err error)   { return 0, nil }
-func (c tconn) Close() error                       { return nil }
-func (c tconn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
-func (c tconn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
-func (c tconn) SetDeadline(t time.Time) error      { return nil }
-func (c tconn) SetReadDeadline(t time.Time) error  { return nil }
-func (c tconn) SetWriteDeadline(t time.Time) error { return nil }
-
 func TestWrite(t *testing.T) {
-	conn := tconn{}
-	client := Client{conn: conn}
-	err := client.write("CMD", "The message", conn, nil)
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		inCmd, inMsg string
+		inHeader     Header
+		want         string
+		wantErr      string
+	}{
+		{
+			"CMD", "Message", Header{HeaderUser: []string{"xx"}},
+			"CMD SPAMC/1.5\r\nContent-length: 9\r\nUser: xx\r\n\r\nMessage\r\n\r\n",
+			"",
+		},
+		{
+			"CMD", "Message", nil,
+			"CMD SPAMC/1.5\r\nContent-length: 9\r\n\r\nMessage\r\n\r\n",
+			"",
+		},
+		{"", "Message", nil, "", "empty command"},
+		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 2\r\n\r\n\r\n\r\n", ""},
 	}
 
-	out := string(data)
-	expected := "CMD SPAMC/1.5\r\nContent-Length: 13\r\n\r\nThe message\r\n"
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			conn := fakeconn.New()
+			c := Client{conn: conn}
 
-	if out != expected {
-		t.Errorf("\nout:      %#v\nexpected: %#v\n", out, expected)
+			err := c.write(conn, tc.inCmd, tc.inMsg, tc.inHeader)
+			out := conn.Written.String()
+			if out != tc.want {
+				t.Errorf("wrong data written\nout:  %#v\nwant: %#v\n",
+					out, tc.want)
+			}
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", out, tc.want)
+			}
+		})
 	}
-
-	/*
-		cases := []struct {
-		}{
-			{},
-		}
-
-		for i, tc := range cases {
-			//t.Run(fmt.Sprintf("%v", tc.in), func(t *testing.T) {
-			t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-				//out := ...
-				if out != tc.expected {
-					t.Errorf("\nout:      %#v\nexpected: %#v\n", out, tc.expected)
-				}
-
-				//if !reflect.DeepEqual(tc.expected, out) {
-				//	t.Errorf("\nout:      %#v\nexpected: %#v\n", out, tc.expected)
-				//}
-				//if diff.Diff(tc.expected, out) != "" {
-				//	t.Errorf(diff.Cmp(tc.expected, out))
-				//}
-			})
-		}
-	*/
 }
 
 func TestReadResponse(t *testing.T) {

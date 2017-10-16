@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,14 +39,20 @@ func (c *Client) call(
 		headers = make(Header)
 	}
 
-	if _, ok := headers[HeaderUser]; !ok {
+	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
 		headers.Add(HeaderUser, c.DefaultUser)
 	}
 
 	// Create a new connection
-	stream, err := c.dial(context.Background())
-	if err != nil {
-		return nil, err
+	var conn net.Conn
+	if testConnHook != nil {
+		conn = testConnHook
+	} else {
+		var err error
+		conn, err = c.dial(context.Background())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Create Command to Send to spamd
@@ -62,13 +69,13 @@ func (c *Client) call(
 	}
 	cmd += "\r\n" + msg + "\r\n\r\n"
 
-	_, errwrite := stream.Write([]byte(cmd))
+	_, errwrite := conn.Write([]byte(cmd))
 	if errwrite != nil {
-		stream.Close() // nolint: errcheck
+		conn.Close() // nolint: errcheck
 		return nil, errors.New("spamd returned a error: " + errwrite.Error())
 	}
 
-	return stream, nil
+	return conn, nil
 }
 
 var (

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -42,6 +43,9 @@ var errorMessages = map[int]string{
 	79: "Read timeout",                           // EX_TIMEOUT
 }
 
+// Temporary hack to write tests.
+var testConnHook net.Conn
+
 // send a command to spamd.
 func (c *Client) send(
 	ctx context.Context,
@@ -49,24 +53,41 @@ func (c *Client) send(
 	headers Header,
 ) (io.ReadCloser, error) {
 
-	conn, err := c.dial(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
+	var conn net.Conn
+	if testConnHook != nil {
+		conn = testConnHook
+	} else {
+		var err error
+		conn, err = c.dial(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
+		}
 	}
 
-	if err := c.write(cmd, message, conn, headers); err != nil {
+	if err := c.write(conn, cmd, message, headers); err != nil {
 		return nil, err
 	}
 
 	return conn, nil
 }
 
-// write command data to client's connection.
+// write the command to the connection.
 func (c *Client) write(
-	cmd, message string,
 	conn net.Conn,
+	cmd, message string,
 	headers Header,
 ) error {
+
+	if strings.TrimSpace(cmd) == "" {
+		return errors.New("empty command")
+	}
+
+	if headers == nil {
+		headers = make(Header)
+	}
+	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
+		headers.Add(HeaderUser, c.DefaultUser)
+	}
 
 	buf := bytes.NewBufferString("")
 	w := bufio.NewWriter(buf)
@@ -77,8 +98,9 @@ func (c *Client) write(
 		return err
 	}
 
-	// Always add Content-Length header.
-	err = tp.PrintfLine("Content-Length: %v", len(message)+2)
+	// Always add Content-length header.
+	// TODO: Is the +2 always required?
+	err = tp.PrintfLine("Content-length: %v", len(message)+2)
 	if err != nil {
 		return err
 	}
@@ -97,7 +119,7 @@ func (c *Client) write(
 	if err != nil {
 		return err
 	}
-	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n")
+	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n\r\n")
 	if err != nil {
 		return err
 	}
@@ -108,16 +130,10 @@ func (c *Client) write(
 
 	// Write to spamd.
 	d, _ := ioutil.ReadAll(buf)
-	n, err := conn.Write(d)
-	if err != nil {
+	if _, err := conn.Write(d); err != nil {
 		conn.Close() // nolint: errcheck
 		return fmt.Errorf("could not send to spamd: %v", err)
 	}
-
-	_ = n
-	//err = tp.PrintfLine("Content-Length: %v", len(message)+2)
-	//fmt.Printf("wrote %d bytes\n", n)
-
 	return nil
 }
 
@@ -148,8 +164,6 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 // Next, it can set some headers:
 //
 //     Content-length: <size>\r\n
-//
-// The only defined header at this moment is Content-Length.
 //
 // After a blank line we get the response body, which is different for the
 // various commands.
@@ -193,7 +207,8 @@ func parseCodeLine(tp *textproto.Reader) error {
 		return fmt.Errorf("unrecognised response: %v", line)
 	}
 
-	// TODO: in some errors it uses version 1.0
+	// TODO: in some errors it uses version 1.0:
+	//     SPAMD/1.0 76 Bad header line: ASDASD
 	if version := line[6:9]; version != serverProtocolVersion {
 		return fmt.Errorf("unknown server protocol version %v; we only understand version %v",
 			version, serverProtocolVersion)
