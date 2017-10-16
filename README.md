@@ -31,7 +31,7 @@ So add `* time.Second` to convert it to a `time.Duration`.
 Runnings tests
 --------------
 
-Tests rely on a running SpamAssassin instance, whose hostname address is
-indicated by the `SPAMC_SA_ADDRESS` environment variable. There is a
-`Dockerfile` which will run a basic SpamAssassin setup. The `./bin/test` script
-will build and run it, run tests, and stop the container.
+Use `./bin/test` to run all tests; use `./bin/test -b testsa` to run tests that
+require a running SpamAssassin instance. This will automatically run SA in a
+Docker container.
+You can also use the `SPAMC_SA_ADDRESS` to indicate the SA address.

@@ -1,48 +1,25 @@
-// Package spamc is a client library for SpamAssassin's spamd daemon.
-//
-// http://svn.apache.org/repos/asf/spamassassin/trunk/spamd/PROTOCOL
 package spamc
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Error codes.
-const (
-	ExOK          = 0  // no problems
-	ExUsage       = 64 // command line usage error
-	ExDataErr     = 65 // data format error
-	ExNoInput     = 66 // cannot open input
-	ExNoUser      = 67 // addressee unknown
-	ExNoHost      = 68 // host name unknown
-	ExUnavailable = 69 // service unavailable
-	ExSoftware    = 70 // internal software error
-	ExOserr       = 71 // system error (e.g., can't fork)
-	ExOsfile      = 72 // critical OS file missing
-	ExCantcreat   = 73 // can't create (user) output file
-	ExIoerr       = 74 // input/output error
-	ExTempfail    = 75 // temp failure; user is invited to retry
-	ExProtocol    = 76 // remote error in protocol
-	ExNoperm      = 77 // permission denied
-	ExConfig      = 78 // configuration error
-	ExTimeout     = 79 // read timeout
-)
-
 // Command types.
 const (
-	CmdCheck               = "CHECK"
-	CmdSymbols             = "SYMBOLS"
-	CmdReport              = "REPORT"
-	CmdReportIgnorewarning = "REPORT_IGNOREWARNING"
-	CmdReportIfspam        = "REPORT_IFSPAM"
-	CmdSkip                = "SKIP"
-	CmdPing                = "PING"
-	CmdTell                = "TELL"
-	CmdProcess             = "PROCESS"
-	CmdHeaders             = "HEADERS"
+	CmdSymbols      = "SYMBOLS"
+	CmdReport       = "REPORT"
+	CmdReportIfspam = "REPORT_IFSPAM"
+	CmdSkip         = "SKIP"
+	CmdPing         = "PING"
+	CmdTell         = "TELL"
+	CmdProcess      = "PROCESS"
+	CmdHeaders      = "HEADERS"
 )
 
 // Learn types.
@@ -52,79 +29,179 @@ const (
 	LearnForget = "FORGET"
 )
 
-// Verbose enabled verbose debugging logs to stderr.
-var Verbose = false
-
 // Client is a connection to the spamd daemon.
 type Client struct {
-	timeout         time.Duration
-	protocolVersion string
-	host            string
-	User            string
+	// DefaultUser is the User to send if a command didn't specify one.
+	DefaultUser string
+
+	host   string
+	dialer net.Dialer
+	conn   net.Conn
 }
 
 // Response is the default response struct.
 type Response struct {
-	Code    int
 	Message string
 	Vars    map[string]interface{}
 }
 
+// Error is used for spamd responses; it contains the spamd exit code.
+type Error struct {
+	msg  string
+	Code int64
+	Line string
+}
+
+func (e Error) Error() string { return e.msg }
+
 // New instance of Client.
 func New(host string, timeout time.Duration) *Client {
 	if timeout == 0 {
-		timeout = defaultTimeout
+		timeout = 30 * time.Second
 	}
+
 	return &Client{
-		timeout:         timeout,
-		protocolVersion: protocolVersion,
-		host:            host,
-		User:            "",
+		host: host,
+		dialer: net.Dialer{
+			Timeout: timeout,
+		},
 	}
 }
 
-// SetUnixUser sets the "User" on the client.
-//
-// TODO: Document what this does, exactly.
-func (s *Client) SetUnixUser(user string) {
-	s.User = user
+// NewWithDialer creates a new instance of Client.
+func NewWithDialer(host string, dialer net.Dialer) *Client {
+	return &Client{
+		host:   host,
+		dialer: dialer,
+	}
+}
+
+// CheckResponse is the response from the Check command.
+type CheckResponse struct {
+	//Response
+
+	// IsSpam reports if this message is considered spam.
+	IsSpam bool
+
+	// Score is the spam score of this message.
+	Score float64
+
+	// BaseScore is the "minimum spam score" configured on the server. This
+	// is usually 5.0.
+	BaseScore float64
 }
 
 // Check if the passed message is spam.
-func (s *Client) Check(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdCheck, msgpars)
+func (c *Client) Check(
+	ctx context.Context,
+	msg string, headers Header,
+) (*CheckResponse, error) {
+
+	read, err := c.send(ctx, "CHECK", msg, headers)
+	if err != nil {
+		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	respHeaders, _, err := readResponse(read)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+	}
+
+	// Spam <yes|no> <score> / <base-score>
+	// Spam: yes; 6.66 / 5.0
+	spam, ok := respHeaders["Spam"]
+	if !ok || len(spam) == 0 {
+		return nil, errors.New("Spam header missing in response")
+	}
+
+	r := CheckResponse{}
+	s := strings.Split(spam[0], ";")
+	if len(s) != 2 {
+		return nil, fmt.Errorf("unexpected data: %v", spam[0])
+	}
+
+	switch strings.ToLower(strings.TrimSpace(s[0])) {
+	case "true", "yes":
+		r.IsSpam = true
+	case "false", "no":
+		r.IsSpam = false
+	default:
+		return nil, fmt.Errorf("unknown spam status: %v", s[0])
+	}
+
+	score := strings.Split(s[1], "/")
+	if len(score) != 2 {
+		return nil, fmt.Errorf("unexpected data: %v", s[1])
+	}
+	r.Score, err = strconv.ParseFloat(strings.TrimSpace(score[0]), 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse spam score: %v", err)
+	}
+	r.BaseScore, err = strconv.ParseFloat(strings.TrimSpace(score[1]), 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse base spam score: %v", err)
+	}
+
+	return &r, nil
 }
 
-// Symbols check if message is spam and return the score and a list of all
+// Symbols checks if the message is spam and returns the score and a list of all
 // symbols that were hit.
-func (s *Client) Symbols(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdSymbols, msgpars)
+func (c *Client) Symbols(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+
+	// SPAMD/1.1 0 EX_OK
+	// Content-length: 50
+	// Spam: False ; 1.6 / 5.0
+	//
+	// INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS
+	return c.simpleCall(CmdSymbols, msg, headers)
 }
 
 // Report checks if the message is spam and returns the score plus report.
-func (s *Client) Report(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdReport, msgpars)
+func (c *Client) Report(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+	return c.simpleCall(CmdReport, msg, headers)
 }
 
 // ReportIfSpam checks if the message is spam and returns the score plus report
 // if the message is spam.
-func (s *Client) ReportIfSpam(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdReportIfspam, msgpars)
+func (c *Client) ReportIfSpam(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+	return c.simpleCall(CmdReportIfspam, msg, headers)
 }
 
 // Skip ignores this message: client opened connection then changed its mind.
-func (s *Client) Skip(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdSkip, msgpars)
+func (c *Client) Skip(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+	return c.simpleCall(CmdSkip, msg, headers)
 }
 
 // Ping returns a confirmation that spamd is alive.
-func (s *Client) Ping() (*Response, error) {
-	return s.simpleCall(CmdPing, []string{})
+func (c *Client) Ping(ctx context.Context) (*Response, error) {
+	return c.simpleCall(CmdPing, "", nil)
 }
 
 // Process this message and return a modified message.
-func (s *Client) Process(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdProcess, msgpars)
+func (c *Client) Process(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+	return c.simpleCall(CmdProcess, msg, headers)
 }
 
 // Tell what type of we are to process and what should be done with that
@@ -132,8 +209,12 @@ func (s *Client) Process(msgpars ...string) (*Response, error) {
 //
 // This includes setting or removing a local or a remote database (learning,
 // reporting, forgetting, revoking).
-func (s *Client) Tell(msgpars []string, headers *map[string]string) (*Response, error) {
-	read, err := s.call(CmdTell, msgpars, headers)
+func (c *Client) Tell(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+	read, err := c.send(ctx, CmdTell, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		return nil, err
@@ -141,11 +222,12 @@ func (s *Client) Tell(msgpars []string, headers *map[string]string) (*Response, 
 
 	r, err := processResponse(CmdTell, read)
 	if err != nil {
-		return nil, err
-	}
+		if serr, ok := err.(Error); ok && serr.Code == 69 {
+			return nil, errors.New(
+				"TELL commands are not enabled, set the --allow-tell switch")
+		}
 
-	if r.Code == ExUnavailable {
-		return nil, errors.New("TELL commands are not enabled, set the --allow-tell switch")
+		return nil, err
 	}
 
 	return r, nil
@@ -153,40 +235,47 @@ func (s *Client) Tell(msgpars []string, headers *map[string]string) (*Response, 
 
 // Headers is the same as Process() but returns only modified headers and not
 // the body.
-func (s *Client) Headers(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdHeaders, msgpars)
+func (c *Client) Headers(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
+	return c.simpleCall(CmdHeaders, msg, headers)
 }
 
 // Learn if a message is spam. This is a more convenient wrapper around SA's
 // "TELL" command.
 //
 // Use one of the Learn* constants as the learnType.
-func (s *Client) Learn(learnType string, msgpars ...string) (*Response, error) {
-	headers := make(map[string]string)
+func (c *Client) Learn(
+	ctx context.Context,
+	learnType, msg string,
+	headers Header,
+) (*Response, error) {
+
+	if headers == nil {
+		headers = make(Header)
+	}
 	switch strings.ToUpper(learnType) {
 	case LearnSpam:
-		headers["Message-class"] = "spam"
-		headers["Set"] = "local"
+		headers.Add(HeaderMessageClass, "spam")
+		headers.Add(HeaderSet, "local")
 	case LearnHam:
-		headers["Message-class"] = "ham"
-		headers["Set"] = "local"
+		headers.Add(HeaderMessageClass, "ham")
+		headers.Add(HeaderSet, "local")
 	case LearnForget:
-		headers["Remove"] = "local"
+		headers.Add(HeaderRemove, "local")
 	default:
 		return nil, fmt.Errorf("unknown learn type: %v", learnType)
 	}
-	return s.Tell(msgpars, &headers)
+	return c.Tell(ctx, msg, headers)
 }
 
-// ReportIgnoreWarning checks if message is spam, and return score plus report
-/*
-* TODO: Not in spamd protocol? Figure out what this does.
-func (s *Client) ReportIgnoreWarning(msgpars ...string) (*Response, error) {
-	return s.simpleCall(CmdReportIgnorewarning, msgpars)
-}
-*/
-
-// SimpleCall sends a command to SpamAssassin.
-func (s *Client) SimpleCall(cmd string, msgpars ...string) (*Response, error) {
-	return s.simpleCall(strings.ToUpper(cmd), msgpars)
+// Send a command a SpamAssassin.
+func (c *Client) Send(
+	ctx context.Context,
+	cmd, msg string,
+	headers Header,
+) (*Response, error) {
+	return c.simpleCall(strings.ToUpper(cmd), msg, headers)
 }

@@ -1,4 +1,7 @@
 _setup_docker() {
+	# Only run if test tags are passed.
+	[ -z "$test_tags" -o -n "${SPAMC_SA_ADDRESS:-}" ] && return
+
 	if [ $(docker container ls -a --filter name=spamc-test | wc -l) -eq 1 ]; then
 		docker build --tag teamwork/spamc:test .
 		docker run --detach --name spamc-test teamwork/spamc:test
@@ -19,3 +22,5 @@ _setup_docker() {
 }
 
 pre_test_func=_setup_docker
+
+# vim:ft=sh

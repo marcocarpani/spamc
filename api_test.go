@@ -1,94 +1,100 @@
 package spamc
 
 import (
+	"context"
 	"fmt"
-	"os"
+	"reflect"
 	"testing"
+
+	"github.com/teamwork/go-spamc/fakeconn"
+	"github.com/teamwork/test"
 )
 
-var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
-
-// Basic test to confirm that the commands return *something* until we have more
-// robust test in place.
-func TestCommands(t *testing.T) {
-	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
-
+func TestCheck(t *testing.T) {
 	cases := []struct {
-		name string
-		fun  func(...string) (*Response, error)
+		in      string
+		want    *CheckResponse
+		wantErr string
 	}{
-		{"Check", client.Check},
-		{"Skip", client.Skip},
-		{"Symbols", client.Symbols},
-		{"Report", client.Report},
-		//{"ReportIgnoreWarning", client.ReportIgnoreWarning},
-		{"ReportIfSpam", client.ReportIfSpam},
-		{"Process", client.Process},
-		{"Header", client.Headers},
+		{
+			"SPAMD/1.1 0 EX_OK\r\nSpam: yes; 6.42 / 5.0\r\n\r\n",
+			&CheckResponse{
+				IsSpam:    true,
+				Score:     6.42,
+				BaseScore: 5,
+			},
+			"",
+		},
+		{
+			"SPAMD/1.1 0 EX_OK\r\nSpam: no; -2.0 / 5.0\r\n\r\n",
+			&CheckResponse{
+				IsSpam:    false,
+				Score:     -2.0,
+				BaseScore: 5,
+			},
+			"",
+		},
 	}
 
-	for _, tc := range cases {
-		t.Run(fmt.Sprintf("%v", tc.name), func(t *testing.T) {
-			r, err := tc.fun(message)
-			if err != nil {
-				t.Fatal(err)
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			conn := fakeconn.New()
+			conn.ReadFrom.WriteString(tc.in)
+			c := Client{conn: conn}
+			testConnHook = conn
+			defer func() { testConnHook = nil }()
+
+			out, err := c.Check(context.Background(), "A message", nil)
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", err, tc.wantErr)
 			}
-			if r == nil {
-				t.Fatal("r is nil")
-			}
-			if r.Code != ExOK {
-				t.Errorf("Code != ExOk: %v", r.Code)
+			if !reflect.DeepEqual(out, tc.want) {
+				t.Errorf("\nout:  %#v\nwant: %#v\n", out, tc.want)
 			}
 		})
 	}
 }
 
-func TestPing(t *testing.T) {
-	client := New(addr, 0)
-	r, err := client.Ping()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-	if r.Code != ExOK {
-		t.Errorf("Code != ExOk: %v", r.Code)
-	}
-}
-
-func TestTell(t *testing.T) {
-	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
-	r, err := client.Tell([]string{message}, &map[string]string{
-		"Message-class": "spam",
-		"Set":           "local",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-	if r.Code != ExOK {
-		t.Errorf("Code != ExOk: %v", r.Code)
+func TestSymbols(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    *Response
+		wantErr string
+	}{
+		{
+			"SPAMD/1.1 0 EX_OK\r\n" +
+				"Content-length: 50\r\n" +
+				"Spam: False ; 1.6 / 5.0\r\n" +
+				"\r\n" +
+				"INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS\r\n",
+			&Response{
+				Message: "EX_OK",
+				Vars: map[string]interface{}{
+					"isSpam":        false,
+					"spamScore":     1.6,
+					"baseSpamScore": 5.0,
+					"symbolList":    []string{"INVALID_DATE", "MISSING_HEADERS", "NO_RECEIVED", "NO_RELAYS"},
+				},
+			},
+			"",
+		},
 	}
 
-}
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			conn := fakeconn.New()
+			conn.ReadFrom.WriteString(tc.in)
+			c := Client{conn: conn}
+			testConnHook = conn
+			defer func() { testConnHook = nil }()
 
-func TestLearn(t *testing.T) {
-	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
-	r, err := client.Learn(LearnHam, message)
-	if err != nil {
-		t.Fatal(err)
+			out, err := c.Symbols(context.Background(), "A message", nil)
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", err, tc.wantErr)
+			}
+			if !reflect.DeepEqual(out, tc.want) {
+				t.Errorf("\nout:  %#v\nwant: %#v\n", out, tc.want)
+			}
+		})
 	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-	if r.Code != ExOK {
-		t.Errorf("Code != ExOk: %v", r.Code)
-	}
-
 }

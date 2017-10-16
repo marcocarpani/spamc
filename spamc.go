@@ -2,20 +2,22 @@ package spamc
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
-	"os"
-	"regexp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	protocolVersion = "1.5"
-	defaultTimeout  = 20 * time.Second
+	clientProtocolVersion = "1.5"
+	serverProtocolVersion = "1.1"
 
 	split     = "§"
 	tableMark = "----"
@@ -23,337 +25,228 @@ const (
 
 // mapping of the error codes to the error messages.
 var errorMessages = map[int]string{
-	ExUsage:       "Command line usage error",
-	ExDataErr:     "Data format error",
-	ExNoInput:     "Cannot open input",
-	ExNoUser:      "Addressee unknown",
-	ExNoHost:      "Host name unknown",
-	ExUnavailable: "Service unavailable",
-	ExSoftware:    "Internal software error",
-	ExOserr:       "System error",
-	ExOsfile:      "Critical OS file missing",
-	ExCantcreat:   "Can't create (user) output file",
-	ExIoerr:       "Input/output error",
-	ExTempfail:    "Temp failure; user is invited to retry",
-	ExProtocol:    "Remote error in protocol",
-	ExNoperm:      "Permission denied",
-	ExConfig:      "Configuration error",
-	ExTimeout:     "Read timeout",
+	64: "Command line usage error",               // EX_USAGE
+	65: "Data format error",                      // EX_DATA_ERR
+	66: "Cannot open input",                      // EX_NO_INPUT
+	67: "Addressee unknown",                      // EX_NO_USER
+	68: "Host name unknown",                      // EX_NO_HOST
+	69: "Service unavailable",                    // EX_UNAVAILABLE
+	70: "Internal software error",                // EX_SOFTWARE
+	71: "System error",                           // EX_OSERR
+	72: "Critical OS file missing",               // EX_OSFILE
+	73: "Can't create (user) output file",        // EX_CANTCREAT
+	74: "Input/output error",                     // EX_IOERR
+	75: "Temp failure; user is invited to retry", // EX_TEMPFAIL
+	76: "Remote error in protocol",               // EX_PROTOCOL
+	77: "Permission denied",                      // EX_NOPERM
+	78: "Configuration error",                    // EX_CONFIG
+	79: "Read timeout",                           // EX_TIMEOUT
 }
 
-func dbg(s string, f ...interface{}) {
-	if Verbose {
-		fmt.Fprintf(os.Stderr, s, f...)
+// Temporary hack to write tests.
+var testConnHook net.Conn
+
+// send a command to spamd.
+func (c *Client) send(
+	ctx context.Context,
+	cmd, message string,
+	headers Header,
+) (io.ReadCloser, error) {
+
+	var conn net.Conn
+	if testConnHook != nil {
+		conn = testConnHook
+	} else {
+		var err error
+		conn, err = c.dial(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
+		}
 	}
-}
 
-// wrapper to simple calls
-func (s *Client) simpleCall(cmd string, msgpars []string) (*Response, error) {
-	read, err := s.call(cmd, msgpars, nil)
-	defer read.Close() // nolint: errcheck
-	if err != nil {
+	if err := c.write(conn, cmd, message, headers); err != nil {
 		return nil, err
 	}
 
-	r, err := processResponse(cmd, read)
-	if r.Code == ExOK {
-		err = nil
-	}
-	return r, err
+	return conn, nil
 }
 
-// Open a connection to spamd and send a command.
-//
-// It returns a reader from which you can read spamd's response.
-func (s *Client) call(
-	cmd string,
-	msgpars []string,
-	extraHeaders *map[string]string,
-) (io.ReadCloser, error) {
+// write the command to the connection.
+func (c *Client) write(
+	conn net.Conn,
+	cmd, message string,
+	headers Header,
+) error {
 
-	if extraHeaders == nil {
-		extraHeaders = &map[string]string{}
+	if strings.TrimSpace(cmd) == "" {
+		return errors.New("empty command")
 	}
 
-	switch len(msgpars) {
-	case 1:
-		if s.User != "" {
-			x := *extraHeaders
-			x["User"] = s.User
-			*extraHeaders = x
-		}
-	case 2:
-		x := *extraHeaders
-		x["User"] = msgpars[1]
-		*extraHeaders = x
-	default:
-		if cmd != CmdPing {
-			return nil, errors.New("message parameters wrong size")
-		}
-		msgpars = []string{""}
+	if headers == nil {
+		headers = make(Header)
+	}
+	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
+		headers.Add(HeaderUser, c.DefaultUser)
 	}
 
-	if cmd == CmdReportIgnorewarning {
-		cmd = CmdReport
-	}
+	buf := bytes.NewBufferString("")
+	w := bufio.NewWriter(buf)
+	tp := textproto.NewWriter(w)
 
-	// Create a new connection
-	stream, err := net.DialTimeout("tcp", s.host, s.timeout)
+	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
 	if err != nil {
-		stream.Close() // nolint: errcheck
-		return nil, fmt.Errorf("connection dial error to spamd: %v", err)
-	}
-	// Set connection timeout
-	errTimeout := stream.SetDeadline(time.Now().Add(s.timeout))
-	if errTimeout != nil {
-		stream.Close() // nolint: errcheck
-		return nil, fmt.Errorf("connection to spamd timed out: %v", errTimeout)
+		return err
 	}
 
-	// Create Command to Send to spamd
-	cmd += " SPAMC/" + s.protocolVersion + "\r\n"
-	cmd += "Content-length: " + fmt.Sprintf("%v\r\n", len(msgpars[0])+2)
-	// Process Extra Headers if Any
-	if len(*extraHeaders) > 0 {
-		for hname, hvalue := range *extraHeaders {
-			cmd = cmd + hname + ": " + hvalue + "\r\n"
+	// Always add Content-length header.
+	// TODO: Is the +2 always required?
+	err = tp.PrintfLine("Content-length: %v", len(message)+2)
+	if err != nil {
+		return err
+	}
+
+	// Write headers.
+	for k, vals := range headers {
+		for _, v := range vals {
+			err := tp.PrintfLine("%v: %v", k, v)
+			if err != nil {
+				return err
+			}
 		}
 	}
-	cmd += "\r\n" + msgpars[0] + "\r\n\r\n"
-
-	dbg("sending:\n%v\nsending END\n", cmd)
-	_, errwrite := stream.Write([]byte(cmd))
-	if errwrite != nil {
-		stream.Close() // nolint: errcheck
-		return nil, errors.New("spamd returned a error: " + errwrite.Error())
+	err = tp.PrintfLine("")
+	if err != nil {
+		return err
 	}
 
-	return stream, nil
+	// Write body.
+	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n\r\n")
+	if err != nil {
+		return err
+	}
+	err = tp.W.Flush()
+	if err != nil {
+		return err
+	}
+
+	// Write to spamd.
+	d, _ := ioutil.ReadAll(buf)
+	if _, err := conn.Write(d); err != nil {
+		conn.Close() // nolint: errcheck
+		return fmt.Errorf("could not send to spamd: %v", err)
+	}
+	return nil
 }
 
-var (
-	reParseResponse = regexp.MustCompile(`(?i)SPAMD\/([0-9\.\-]+)\s([0-9]+)\s([0-9A-Z_]+)`)
-	reFindScore     = regexp.MustCompile(`(?i)Spam:\s(True|False|Yes|No)\s;\s(-?[0-9\.]+)\s\/\s(-?[0-9\.]+)`)
-)
+func (c *Client) dial(ctx context.Context) (net.Conn, error) {
+	conn, err := c.dialer.DialContext(ctx, "tcp", c.host)
+	if err != nil {
+		if conn != nil {
+			conn.Close() // nolint: errcheck
+		}
+		return nil, fmt.Errorf("could not connect to spamd: %v", err)
+	}
 
-// SpamD reply processor
-func processResponse(cmd string, read io.Reader) (*Response, error) {
+	// Set connection timeout
+	err = conn.SetDeadline(time.Now().Add(c.dialer.Timeout))
+	if err != nil {
+		conn.Close() // nolint: errcheck
+		return nil, fmt.Errorf("connection to spamd timed out: %v", err)
+	}
+
+	return conn, nil
+}
+
+// The spamd protocol is a HTTP-esque protocol; a response's first line is the
+// response code:
+//
+//     SPAMD/1.1 0 EX_OK\r\n
+//
+// Next, it can set some headers:
+//
+//     Content-length: <size>\r\n
+//
+// After a blank line we get the response body, which is different for the
+// various commands.
+//
+// A non-0 (or EX_OK) status code is considered an error.
+func readResponse(read io.Reader) (headers Header, body string, err error) {
 	data := bufio.NewReader(read)
-	defer data.UnreadByte() // nolint: errcheck
+	tp := textproto.NewReader(data)
 
-	returnObj := new(Response)
-	returnObj.Code = -1
-	// read the first line
-	line, _, _ := data.ReadLine()
-	lineStr := string(line)
-	var err error
-
-	var result = reParseResponse.FindStringSubmatch(lineStr)
-	if len(result) < 4 {
-		if cmd != "SKIP" {
-			err = errors.New("spamd unrecognised reply:" + lineStr)
-		} else {
-			returnObj.Code = ExOK
-			returnObj.Message = "SKIPPED"
-		}
-		return returnObj, err
-	}
-	returnObj.Code, _ = strconv.Atoi(result[2])
-	returnObj.Message = result[3]
-
-	// verify a mapped error...
-	if errorMessages[returnObj.Code] != "" {
-		err = errors.New(errorMessages[returnObj.Code])
-		returnObj.Vars = make(map[string]interface{})
-		returnObj.Vars["error_description"] = errorMessages[returnObj.Code]
-		return returnObj, err
-	}
-	returnObj.Vars = make(map[string]interface{})
-
-	// start didSet
-	if cmd == CmdTell {
-		returnObj.Vars["didSet"] = false
-		returnObj.Vars["didRemove"] = false
-		for {
-			line, _, err = data.ReadLine()
-
-			if err == io.EOF || err != nil {
-				if err == io.EOF {
-					err = nil
-				}
-				break
-			}
-			if strings.Contains(string(line), "DidRemove") {
-				returnObj.Vars["didRemove"] = true
-			}
-			if strings.Contains(string(line), "DidSet") {
-				returnObj.Vars["didSet"] = true
-			}
-
-		}
-		return returnObj, err
-	}
-	// read the second line
-	line, _, err = data.ReadLine()
-
-	// finish here if line is empty
-	if len(line) == 0 {
-		if err == io.EOF {
-			err = nil
-		}
-		return returnObj, err
+	// We can't use textproto's ReadCodeLine() here, as SA's response is not
+	// quite compatible.
+	if err := parseCodeLine(tp); err != nil {
+		return nil, "", err
 	}
 
-	// ignore content-length header..
-	lineStr = string(line)
-	switch cmd {
-
-	case CmdSymbols,
-		CmdCheck,
-		CmdReport,
-		CmdReportIfspam,
-		CmdReportIgnorewarning,
-		CmdProcess,
-		CmdHeaders:
-
-		switch cmd {
-		case CmdSymbols, CmdReport, CmdReportIfspam, CmdReportIgnorewarning, CmdProcess, CmdHeaders:
-			// ignore content-length header..
-			line, _, err = data.ReadLine()
-			lineStr = string(line)
-		}
-
-		var result = reFindScore.FindStringSubmatch(lineStr)
-
-		if len(result) > 0 {
-			returnObj.Vars["isSpam"] = false
-			switch result[1][0:1] {
-			case "T", "t", "Y", "y":
-				returnObj.Vars["isSpam"] = true
-			}
-			returnObj.Vars["spamScore"], _ = strconv.ParseFloat(result[2], 64)
-			returnObj.Vars["baseSpamScore"], _ = strconv.ParseFloat(result[3], 64)
-		}
-
-		switch cmd {
-		case CmdProcess, CmdHeaders:
-			lines := ""
-			for {
-				line, _, err = data.ReadLine()
-				if err == io.EOF || err != nil {
-					if err == io.EOF {
-						err = nil
-					}
-					return returnObj, err
-				}
-				lines += string(line) + "\r\n"
-				returnObj.Vars["body"] = lines
-			}
-		case CmdSymbols:
-			// ignore line break...
-			_, _, err := data.ReadLine()
-			if err != nil {
-				return nil, err
-			}
-
-			// read
-			line, _, err = data.ReadLine()
-			if err != nil {
-				return nil, err
-			}
-			returnObj.Vars["symbolList"] = strings.Split(string(line), ",")
-
-		case CmdReport, CmdReportIfspam, CmdReportIgnorewarning:
-			// ignore line break...
-			_, _, err := data.ReadLine()
-			if err != nil {
-				return nil, err
-			}
-
-			for {
-				line, _, err = data.ReadLine()
-
-				if len(line) > 0 {
-					lineStr = string(line)
-
-					// TXT Table found, prepare to parse..
-					if len(lineStr) >= 4 && lineStr[0:4] == tableMark {
-
-						section := []map[string]interface{}{}
-						tt := 0
-						for {
-							line, _, err = data.ReadLine()
-							// Stop read the text table if last line or Void line
-							if err == io.EOF || err != nil || len(line) == 0 {
-								if err == io.EOF {
-									err = nil // nolint: ineffassign
-								}
-								break
-							}
-							// Parsing
-							lineStr = string(line)
-							spc := 2
-							if lineStr[0:1] == "-" {
-								spc = 1
-							}
-							lineStr = strings.Replace(lineStr, " ", split, spc)
-							lineStr = strings.Replace(lineStr, " ", split, 1)
-							if spc > 1 {
-								lineStr = " " + lineStr[2:]
-							}
-							x := strings.Split(lineStr, split)
-							if lineStr[1:3] == split {
-								section[tt-1]["message"] = fmt.Sprintf("%v %v", section[tt-1]["message"], strings.TrimSpace(lineStr[5:]))
-							} else {
-								if len(x) != 0 {
-									message := strings.TrimSpace(x[2])
-									score, _ := strconv.ParseFloat(strings.TrimSpace(x[0]), 64)
-
-									section = append(section, map[string]interface{}{
-										"score":   score,
-										"symbol":  x[1],
-										"message": message,
-									})
-
-									tt++
-								}
-							}
-						}
-						if cmd == CmdReportIgnorewarning {
-							nsection := []map[string]interface{}{}
-							for _, c := range section {
-								if c["score"].(float64) != 0 {
-									nsection = append(nsection, c)
-								}
-							}
-							section = nsection
-						}
-
-						returnObj.Vars["report"] = section
-						break
-					}
-				}
-
-				if err == io.EOF || err != nil {
-					if err == io.EOF {
-						err = nil // nolint: ineffassign
-					}
-					break
-				}
-			}
-		}
+	tpHeader, err := tp.ReadMIMEHeader()
+	if err != nil {
+		return nil, "", err
 	}
 
-	if err != io.EOF {
-		for {
-			line, _, err = data.ReadLine() // nolint: ineffassign
-			if err == io.EOF || err != nil {
-				if err == io.EOF {
-					err = nil
-				}
-				break
-			}
-		}
+	headers = Header(tpHeader)
+
+	body, err = readBody(tp)
+	if err != nil {
+		return nil, "", err
 	}
-	return returnObj, err
+
+	return headers, body, nil
+}
+
+func parseCodeLine(tp *textproto.Reader) error {
+	line, err := tp.ReadLine()
+	if err != nil {
+		return err
+	}
+
+	if len(line) < 11 {
+		return fmt.Errorf("short response: %v", line)
+	}
+	if !strings.HasPrefix(line, "SPAMD/") {
+		return fmt.Errorf("unrecognised response: %v", line)
+	}
+
+	// TODO: in some errors it uses version 1.0:
+	//     SPAMD/1.0 76 Bad header line: ASDASD
+	if version := line[6:9]; version != serverProtocolVersion {
+		return fmt.Errorf("unknown server protocol version %v; we only understand version %v",
+			version, serverProtocolVersion)
+	}
+
+	s := strings.Split(line[10:], " ")
+	code, err := strconv.Atoi(s[0])
+	if err != nil {
+		return fmt.Errorf("could not parse return code: %v", err)
+	}
+	if code != 0 {
+		text := strings.Join(s[1:], " ")
+		if msg, ok := errorMessages[code]; ok {
+			return fmt.Errorf("spamd returned code %v: %v: %v", code, msg, text)
+		}
+		return fmt.Errorf("spamd returned code %v: %v", code, text)
+	}
+
+	return nil
+}
+
+func readBody(tp *textproto.Reader) (string, error) {
+	body := ""
+loop:
+	for {
+		line, err := tp.ReadLine()
+		switch err {
+		case nil:
+			// Do nothing
+		case io.EOF:
+			break loop
+		default:
+			return "", err
+		}
+
+		body += line + "\r\n"
+	}
+
+	return body, nil
 }
