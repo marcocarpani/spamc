@@ -85,12 +85,16 @@ var (
 
 // Spamd reply processor.
 func processResponse(cmd string, read io.Reader) (*Response, error) {
+	show := false
 	data := bufio.NewReader(read)
 	defer data.UnreadByte() // nolint: errcheck
 
 	// Read the first line.
 	line, _, _ := data.ReadLine()
 	lineStr := string(line)
+	if show {
+		fmt.Println(lineStr)
+	}
 
 	var result = reParseResponse.FindStringSubmatch(lineStr)
 	if len(result) < 4 {
@@ -130,6 +134,9 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 		returnObj.Vars["didRemove"] = false
 		for {
 			line, _, err = data.ReadLine()
+			if show {
+				fmt.Println(string(line))
+			}
 
 			if err == io.EOF || err != nil {
 				if err == io.EOF {
@@ -149,6 +156,9 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 	}
 	// read the second line
 	line, _, err = data.ReadLine()
+	if show {
+		fmt.Println(string(line))
+	}
 
 	// finish here if line is empty
 	if len(line) == 0 {
@@ -173,6 +183,9 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 		case CmdSymbols, CmdReport, CmdReportIfspam, CmdProcess, CmdHeaders:
 			// ignore content-length header..
 			line, _, err = data.ReadLine()
+			if show {
+				fmt.Println(string(line))
+			}
 			lineStr = string(line)
 		}
 
@@ -193,6 +206,9 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 			lines := ""
 			for {
 				line, _, err = data.ReadLine()
+				if show {
+					fmt.Println(string(line))
+				}
 				if err == io.EOF || err != nil {
 					if err == io.EOF {
 						err = nil
@@ -205,12 +221,18 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 		case CmdSymbols:
 			// ignore line break...
 			_, _, err := data.ReadLine()
+			if show {
+				fmt.Println(string(line))
+			}
 			if err != nil {
 				return nil, err
 			}
 
 			// read
 			line, _, err = data.ReadLine()
+			if show {
+				fmt.Println(string(line))
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -219,12 +241,18 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 		case CmdReport, CmdReportIfspam:
 			// ignore line break...
 			_, _, err := data.ReadLine()
+			if show {
+				fmt.Println(string(line))
+			}
 			if err != nil {
 				return nil, err
 			}
 
 			for {
 				line, _, err = data.ReadLine()
+				if show {
+					fmt.Println(string(line))
+				}
 
 				if len(line) > 0 {
 					lineStr = string(line)
@@ -236,6 +264,9 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 						tt := 0
 						for {
 							line, _, err = data.ReadLine()
+							if show {
+								fmt.Println(string(line))
+							}
 							// Stop read the text table if last line or Void line
 							if err == io.EOF || err != nil || len(line) == 0 {
 								if err == io.EOF {
@@ -291,6 +322,9 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 	if err != io.EOF {
 		for {
 			line, _, err = data.ReadLine() // nolint: ineffassign
+			if show {
+				fmt.Println(string(line))
+			}
 			if err == io.EOF || err != nil {
 				if err == io.EOF {
 					err = nil

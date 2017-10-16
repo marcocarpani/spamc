@@ -23,7 +23,7 @@ func TestSACommands(t *testing.T) {
 	}{
 		//{"Check", client.Check},
 		{"Skip", client.Skip},
-		{"Symbols", client.Symbols},
+		//{"Symbols", client.Symbols},
 		{"Report", client.Report},
 		{"ReportIfSpam", client.ReportIfSpam},
 		{"Process", client.Process},
@@ -90,6 +90,21 @@ func TestSACheck(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
+}
 
-	//fmt.Printf("%#v\n", r)
+func TestSASymbols(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Symbols(context.Background(), ""+
+		"Date: now\r\n"+
+		"From: a@example.com\r\n"+
+		"Subject: Hello\r\n"+
+		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
+		"\r\n\r\nthe body"+
+		"", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
 }

@@ -146,13 +146,19 @@ func (c *Client) Check(
 	return &r, nil
 }
 
-// Symbols check if message is spam and return the score and a list of all
+// Symbols checks if the message is spam and returns the score and a list of all
 // symbols that were hit.
 func (c *Client) Symbols(
 	ctx context.Context,
 	msg string,
 	headers Header,
 ) (*Response, error) {
+
+	// SPAMD/1.1 0 EX_OK
+	// Content-length: 50
+	// Spam: False ; 1.6 / 5.0
+	//
+	// INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS
 	return c.simpleCall(CmdSymbols, msg, headers)
 }
 

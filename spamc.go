@@ -114,11 +114,12 @@ func (c *Client) write(
 			}
 		}
 	}
-
 	err = tp.PrintfLine("")
 	if err != nil {
 		return err
 	}
+
+	// Write body.
 	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n\r\n")
 	if err != nil {
 		return err
