@@ -2,4 +2,4 @@
 //
 // The protocol specification can be found here:
 // http://svn.apache.org/repos/asf/spamassassin/trunk/spamd/PROTOCOL
-package spamc
+package spamc // import "github.com/teamwork/go-spamc"
