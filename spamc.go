@@ -3,13 +3,12 @@ package spamc
 import (
 	"bufio"
 	"bytes"
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/textproto"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,6 @@ import (
 const (
 	clientProtocolVersion = "1.5"
 	serverProtocolVersion = "1.1"
-	defaultTimeout        = 20 * time.Second
 
 	split     = "§"
 	tableMark = "----"
@@ -46,26 +44,27 @@ var errorMessages = map[int]string{
 
 // send a command to spamd.
 func (c *Client) send(
+	ctx context.Context,
 	cmd, message string,
 	headers Header,
 ) (io.ReadCloser, error) {
 
-	conn, err := c.dial()
+	conn, err := c.dial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
 	}
 
-	if err := c.write(conn, cmd, message, headers); err != nil {
+	if err := c.write(cmd, message, conn, headers); err != nil {
 		return nil, err
 	}
 
 	return conn, nil
 }
 
-// write command data to a connection.
+// write command data to client's connection.
 func (c *Client) write(
-	conn net.Conn,
 	cmd, message string,
+	conn net.Conn,
 	headers Header,
 ) error {
 
@@ -73,7 +72,7 @@ func (c *Client) write(
 	w := bufio.NewWriter(buf)
 	tp := textproto.NewWriter(w)
 
-	err := tp.PrintfLine("SPAMC/%v", clientProtocolVersion)
+	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
 	if err != nil {
 		return err
 	}
@@ -107,18 +106,23 @@ func (c *Client) write(
 		return err
 	}
 
+	// Write to spamd.
 	d, _ := ioutil.ReadAll(buf)
-	if _, err := conn.Write(d); err != nil {
+	n, err := conn.Write(d)
+	if err != nil {
 		conn.Close() // nolint: errcheck
-		return errors.New("spamd returned a error: " + err.Error())
+		return fmt.Errorf("could not send to spamd: %v", err)
 	}
+
+	_ = n
+	//err = tp.PrintfLine("Content-Length: %v", len(message)+2)
+	//fmt.Printf("wrote %d bytes\n", n)
 
 	return nil
 }
 
-func (c *Client) dial() (net.Conn, error) {
-	// Create a new connection
-	conn, err := net.DialTimeout("tcp", c.host, c.timeout)
+func (c *Client) dial(ctx context.Context) (net.Conn, error) {
+	conn, err := c.dialer.DialContext(ctx, "tcp", c.host)
 	if err != nil {
 		if conn != nil {
 			conn.Close() // nolint: errcheck
@@ -127,7 +131,7 @@ func (c *Client) dial() (net.Conn, error) {
 	}
 
 	// Set connection timeout
-	err = conn.SetDeadline(time.Now().Add(c.timeout))
+	err = conn.SetDeadline(time.Now().Add(c.dialer.Timeout))
 	if err != nil {
 		conn.Close() // nolint: errcheck
 		return nil, fmt.Errorf("connection to spamd timed out: %v", err)
@@ -135,11 +139,6 @@ func (c *Client) dial() (net.Conn, error) {
 
 	return conn, nil
 }
-
-var (
-	reParseResponse = regexp.MustCompile(`(?i)SPAMD\/([0-9\.\-]+)\s([0-9]+)\s([0-9A-Z_]+)`)
-	reFindScore     = regexp.MustCompile(`(?i)Spam:\s(True|False|Yes|No)\s;\s(-?[0-9\.]+)\s\/\s(-?[0-9\.]+)`)
-)
 
 // The spamd protocol is a HTTP-esque protocol; a response's first line is the
 // response code:
@@ -194,6 +193,7 @@ func parseCodeLine(tp *textproto.Reader) error {
 		return fmt.Errorf("unrecognised response: %v", line)
 	}
 
+	// TODO: in some errors it uses version 1.0
 	if version := line[6:9]; version != serverProtocolVersion {
 		return fmt.Errorf("unknown server protocol version %v; we only understand version %v",
 			version, serverProtocolVersion)
@@ -205,12 +205,11 @@ func parseCodeLine(tp *textproto.Reader) error {
 		return fmt.Errorf("could not parse return code: %v", err)
 	}
 	if code != 0 {
+		text := strings.Join(s[1:], " ")
 		if msg, ok := errorMessages[code]; ok {
-			return fmt.Errorf("spamd returned code %v: %v", code, msg)
+			return fmt.Errorf("spamd returned code %v: %v: %v", code, msg, text)
 		}
-
-		return fmt.Errorf("spamd returned code %v: %v",
-			code, strings.Join(s[1:], " "))
+		return fmt.Errorf("spamd returned code %v: %v", code, text)
 	}
 
 	return nil

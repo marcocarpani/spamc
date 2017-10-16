@@ -2,9 +2,11 @@ package spamc
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -41,7 +43,7 @@ func (c *Client) call(
 	}
 
 	// Create a new connection
-	stream, err := c.dial()
+	stream, err := c.dial(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +70,11 @@ func (c *Client) call(
 
 	return stream, nil
 }
+
+var (
+	reParseResponse = regexp.MustCompile(`(?i)SPAMD\/([0-9\.\-]+)\s([0-9]+)\s([0-9A-Z_]+)`)
+	reFindScore     = regexp.MustCompile(`(?i)Spam:\s(True|False|Yes|No)\s;\s(-?[0-9\.]+)\s\/\s(-?[0-9\.]+)`)
+)
 
 // Spamd reply processor.
 func processResponse(cmd string, read io.Reader) (*Response, error) {

@@ -1,8 +1,10 @@
 package spamc
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -29,9 +31,12 @@ const (
 
 // Client is a connection to the spamd daemon.
 type Client struct {
-	timeout     time.Duration
-	host        string
+	// DefaultUser is the User to send if a command didn't specify one.
 	DefaultUser string
+
+	host   string
+	dialer net.Dialer
+	conn   net.Conn
 }
 
 // Response is the default response struct.
@@ -51,13 +56,22 @@ func (e Error) Error() string { return e.msg }
 // New instance of Client.
 func New(host string, timeout time.Duration) *Client {
 	if timeout == 0 {
-		timeout = defaultTimeout
+		timeout = 30 * time.Second
 	}
 
 	return &Client{
-		timeout:     timeout,
-		host:        host,
-		DefaultUser: "",
+		host: host,
+		dialer: net.Dialer{
+			Timeout: timeout,
+		},
+	}
+}
+
+// NewWithDialer creates a new instance of Client.
+func NewWithDialer(host string, dialer net.Dialer) *Client {
+	return &Client{
+		host:   host,
+		dialer: dialer,
 	}
 }
 
@@ -77,7 +91,12 @@ type CheckResponse struct {
 }
 
 // Check if the passed message is spam.
-func (c *Client) Check(msg string, headers Header) (*CheckResponse, error) {
+func (c *Client) Check(
+	ctx context.Context,
+	msg string, headers Header,
+) (*CheckResponse, error) {
+
+	//read, err := c.send(ctx, "CHECK", msg, headers)
 	read, err := c.call("CHECK", msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
@@ -113,6 +132,7 @@ func (c *Client) Check(msg string, headers Header) (*CheckResponse, error) {
 	if len(score) != 2 {
 		return nil, fmt.Errorf("unexpected data: %v", s[1])
 	}
+	// TODO: make sure negative scores work.
 	r.SpamScore, err = strconv.ParseFloat(strings.TrimSpace(score[0]), 32)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse spam score: %v", err)
@@ -127,33 +147,53 @@ func (c *Client) Check(msg string, headers Header) (*CheckResponse, error) {
 
 // Symbols check if message is spam and return the score and a list of all
 // symbols that were hit.
-func (c *Client) Symbols(msg string, headers Header) (*Response, error) {
+func (c *Client) Symbols(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	return c.simpleCall(CmdSymbols, msg, headers)
 }
 
 // Report checks if the message is spam and returns the score plus report.
-func (c *Client) Report(msg string, headers Header) (*Response, error) {
+func (c *Client) Report(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	return c.simpleCall(CmdReport, msg, headers)
 }
 
 // ReportIfSpam checks if the message is spam and returns the score plus report
 // if the message is spam.
-func (c *Client) ReportIfSpam(msg string, headers Header) (*Response, error) {
+func (c *Client) ReportIfSpam(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	return c.simpleCall(CmdReportIfspam, msg, headers)
 }
 
 // Skip ignores this message: client opened connection then changed its mind.
-func (c *Client) Skip(msg string, headers Header) (*Response, error) {
+func (c *Client) Skip(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	return c.simpleCall(CmdSkip, msg, headers)
 }
 
 // Ping returns a confirmation that spamd is alive.
-func (c *Client) Ping() (*Response, error) {
+func (c *Client) Ping(ctx context.Context) (*Response, error) {
 	return c.simpleCall(CmdPing, "", nil)
 }
 
 // Process this message and return a modified message.
-func (c *Client) Process(msg string, headers Header) (*Response, error) {
+func (c *Client) Process(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	return c.simpleCall(CmdProcess, msg, headers)
 }
 
@@ -162,7 +202,11 @@ func (c *Client) Process(msg string, headers Header) (*Response, error) {
 //
 // This includes setting or removing a local or a remote database (learning,
 // reporting, forgetting, revoking).
-func (c *Client) Tell(msg string, headers Header) (*Response, error) {
+func (c *Client) Tell(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	read, err := c.call(CmdTell, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
@@ -184,7 +228,11 @@ func (c *Client) Tell(msg string, headers Header) (*Response, error) {
 
 // Headers is the same as Process() but returns only modified headers and not
 // the body.
-func (c *Client) Headers(msg string, headers Header) (*Response, error) {
+func (c *Client) Headers(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*Response, error) {
 	return c.simpleCall(CmdHeaders, msg, headers)
 }
 
@@ -192,7 +240,12 @@ func (c *Client) Headers(msg string, headers Header) (*Response, error) {
 // "TELL" command.
 //
 // Use one of the Learn* constants as the learnType.
-func (c *Client) Learn(learnType, msg string, headers Header) (*Response, error) {
+func (c *Client) Learn(
+	ctx context.Context,
+	learnType, msg string,
+	headers Header,
+) (*Response, error) {
+
 	if headers == nil {
 		headers = make(Header)
 	}
@@ -208,11 +261,12 @@ func (c *Client) Learn(learnType, msg string, headers Header) (*Response, error)
 	default:
 		return nil, fmt.Errorf("unknown learn type: %v", learnType)
 	}
-	return c.Tell(msg, headers)
+	return c.Tell(ctx, msg, headers)
 }
 
-// SimpleCall sends a command to SpamAssassin.
-func (c *Client) SimpleCall(
+// Send a command a SpamAssassin.
+func (c *Client) Send(
+	ctx context.Context,
 	cmd, msg string,
 	headers Header,
 ) (*Response, error) {
