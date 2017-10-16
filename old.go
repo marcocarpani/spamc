@@ -119,8 +119,7 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 	lineStr = string(line)
 	switch cmd {
 
-	case CmdSymbols,
-		CmdReport,
+	case CmdReport,
 		CmdReportIfspam,
 		CmdProcess,
 		CmdHeaders:
@@ -161,25 +160,6 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 				lines += string(line) + "\r\n"
 				returnObj.Vars["body"] = lines
 			}
-		case CmdSymbols:
-			// ignore line break...
-			_, _, err := data.ReadLine()
-			if show {
-				fmt.Println(string(line))
-			}
-			if err != nil {
-				return nil, err
-			}
-
-			// read
-			line, _, err = data.ReadLine()
-			if show {
-				fmt.Println(string(line))
-			}
-			if err != nil {
-				return nil, err
-			}
-			returnObj.Vars["symbolList"] = strings.Split(string(line), ",")
 
 		case CmdReport, CmdReportIfspam:
 			// ignore line break...

@@ -113,3 +113,85 @@ func TestParseCodeLine(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSpamHeader(t *testing.T) {
+	cases := []struct {
+		in                       Header
+		wantIsSpam               bool
+		wantScore, wantBaseScore float64
+		wantErr                  string
+	}{
+		// Invalid data
+		{Header{}, false, 0, 0, "header missing"},
+		{Header{"Spam": []string{""}}, false, 0, 0, "header empty"},
+		{
+			Header{"Spam": []string{"clearly incorrect"}},
+			false, 0, 0, "unexpected data",
+		},
+		{
+			Header{"Spam": []string{"bacon ; 0 / 0"}},
+			false, 0, 0, "unknown spam status",
+		},
+		{
+			Header{"Spam": []string{"no ; 0 "}},
+			false, 0, 0, "unexpected data",
+		},
+		{
+			Header{"Spam": []string{"no ; 0 / "}},
+			false, 0, 0, "could not parse",
+		},
+		{
+			Header{"Spam": []string{"no ; 0 / asd"}},
+			false, 0, 0, "could not parse",
+		},
+		{
+			Header{"Spam": []string{"no ; asd / 0"}},
+			false, 0, 0, "could not parse",
+		},
+
+		// Valid data
+		{
+			Header{"Spam": []string{"no ; 0.1 / 5.0"}},
+			false, .1, 5.0, "",
+		},
+		{
+			Header{"Spam": []string{"no;0.1 / 5.0"}},
+			false, .1, 5.0, "",
+		},
+		{
+			Header{"Spam": []string{"no;0.1/5.0"}},
+			false, .1, 5.0, "",
+		},
+		{
+			Header{"Spam": []string{"no;-0.1/5.0"}},
+			false, -.1, 5.0, "",
+		},
+		{
+			Header{"Spam": []string{"TRUe ; 4 / 7.0"}},
+			true, 4.0, 7.0, "",
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			isSpam, score, baseScore, err := parseSpamHeader(tc.in)
+
+			if isSpam != tc.wantIsSpam {
+				t.Errorf("isSpam wrong\nout:  %#v\nwant: %#v\n",
+					isSpam, tc.wantIsSpam)
+			}
+			if score != tc.wantScore {
+				t.Errorf("score wrong\nout:  %#v\nwant: %#v\n",
+					score, tc.wantScore)
+			}
+			if baseScore != tc.wantBaseScore {
+				t.Errorf("baseScore wrong\nout:  %#v\nwant: %#v\n",
+					baseScore, tc.wantBaseScore)
+			}
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("error wrong\nout:  %#v\nwant: %#v\n",
+					err, tc.wantErr)
+			}
+		})
+	}
+}
