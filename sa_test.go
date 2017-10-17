@@ -83,7 +83,7 @@ func TestSALearn(t *testing.T) {
 
 func TestSACheck(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Check(context.Background(), "Penis viagra", nil)
+	r, err := client.Check(context.Background(), "\r\nPenis viagra\r\n", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestSASymbols(t *testing.T) {
 		"From: a@example.com\r\n"+
 		"Subject: Hello\r\n"+
 		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
-		"\r\n\r\nthe body"+
+		"\r\n\r\nthe body\r\n"+
 		"", nil)
 	if err != nil {
 		t.Fatal(err)
