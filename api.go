@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -89,6 +88,9 @@ type CheckResponse struct {
 	// BaseScore is the "minimum spam score" configured on the server. This
 	// is usually 5.0.
 	BaseScore float64
+
+	// Symbols that matches; only when the Symbols command is used.
+	Symbols []string
 }
 
 // Check if the passed message is spam.
@@ -108,42 +110,16 @@ func (c *Client) Check(
 		return nil, fmt.Errorf("could not parse spamd response: %v", err)
 	}
 
-	// Spam <yes|no> <score> / <base-score>
-	// Spam: yes; 6.66 / 5.0
-	spam, ok := respHeaders["Spam"]
-	if !ok || len(spam) == 0 {
-		return nil, errors.New("Spam header missing in response")
-	}
-
-	r := CheckResponse{}
-	s := strings.Split(spam[0], ";")
-	if len(s) != 2 {
-		return nil, fmt.Errorf("unexpected data: %v", spam[0])
-	}
-
-	switch strings.ToLower(strings.TrimSpace(s[0])) {
-	case "true", "yes":
-		r.IsSpam = true
-	case "false", "no":
-		r.IsSpam = false
-	default:
-		return nil, fmt.Errorf("unknown spam status: %v", s[0])
-	}
-
-	score := strings.Split(s[1], "/")
-	if len(score) != 2 {
-		return nil, fmt.Errorf("unexpected data: %v", s[1])
-	}
-	r.Score, err = strconv.ParseFloat(strings.TrimSpace(score[0]), 64)
+	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spam score: %v", err)
-	}
-	r.BaseScore, err = strconv.ParseFloat(strings.TrimSpace(score[1]), 64)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse base spam score: %v", err)
+		return nil, fmt.Errorf("could not read Spam header: %v", err)
 	}
 
-	return &r, nil
+	return &CheckResponse{
+		IsSpam:    isSpam,
+		Score:     score,
+		BaseScore: baseScore,
+	}, nil
 }
 
 // Symbols checks if the message is spam and returns the score and a list of all
@@ -152,14 +128,35 @@ func (c *Client) Symbols(
 	ctx context.Context,
 	msg string,
 	headers Header,
-) (*Response, error) {
+) (*CheckResponse, error) {
 
 	// SPAMD/1.1 0 EX_OK
 	// Content-length: 50
 	// Spam: False ; 1.6 / 5.0
 	//
 	// INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS
-	return c.simpleCall(CmdSymbols, msg, headers)
+	read, err := c.send(ctx, "SYMBOLS", msg, headers)
+	if err != nil {
+		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	respHeaders, body, err := readResponse(read)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+	}
+
+	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("could not read Spam header: %v", err)
+	}
+
+	return &CheckResponse{
+		IsSpam:    isSpam,
+		Score:     score,
+		BaseScore: baseScore,
+		Symbols:   strings.Split(strings.TrimSpace(body), ","),
+	}, nil
 }
 
 // Report checks if the message is spam and returns the score plus report.
