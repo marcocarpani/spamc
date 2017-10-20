@@ -16,7 +16,6 @@ const (
 	CmdSymbols      = "SYMBOLS"
 	CmdReport       = "REPORT"
 	CmdReportIfspam = "REPORT_IFSPAM"
-	CmdSkip         = "SKIP"
 	CmdPing         = "PING"
 	CmdTell         = "TELL"
 	CmdProcess      = "PROCESS"
@@ -190,15 +189,6 @@ func (c *Client) ReportIfSpam(
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(CmdReportIfspam, msg, headers)
-}
-
-// Skip ignores this message: client opened connection then changed its mind.
-func (c *Client) Skip(
-	ctx context.Context,
-	msg string,
-	headers Header,
-) (*Response, error) {
-	return c.simpleCall(CmdSkip, msg, headers)
 }
 
 // Process this message and return a modified message.

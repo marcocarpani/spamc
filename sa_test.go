@@ -22,7 +22,6 @@ func TestSACommands(t *testing.T) {
 		fun  func(context.Context, string, Header) (*Response, error)
 	}{
 		//{"Check", client.Check},
-		{"Skip", client.Skip},
 		//{"Symbols", client.Symbols},
 		{"Report", client.Report},
 		{"ReportIfSpam", client.ReportIfSpam},

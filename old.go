@@ -50,12 +50,7 @@ func processResponse(cmd string, read io.Reader) (*Response, error) {
 
 	var result = reParseResponse.FindStringSubmatch(lineStr)
 	if len(result) < 4 {
-		if cmd != "SKIP" {
-			return nil, fmt.Errorf("spamd unrecognised reply: %v", lineStr)
-		}
-		return &Response{
-			Message: "SKIPPED",
-		}, nil
+		return nil, fmt.Errorf("spamd unrecognised reply: %v", lineStr)
 	}
 
 	returnCode, err := strconv.Atoi(result[2])
