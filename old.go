@@ -10,6 +10,11 @@ import (
 	"strings"
 )
 
+const (
+	split     = "§"
+	tableMark = "----"
+)
+
 // wrapper to simple calls.
 func (c *Client) simpleCall(
 	cmd, msg string,

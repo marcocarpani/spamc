@@ -88,25 +88,30 @@ func TestParseCodeLine(t *testing.T) {
 	cases := []struct {
 		in       string
 		expected string
+		isPing   bool
 	}{
-		{"SPAMD/1.1 0 EX_OK", ""},
-		{"SPAMD/1.1 0", ""},
+		{"SPAMD/1.1 0 EX_OK", "", false},
+		{"SPAMD/1.1 0", "", false},
+		{"SPAMD/1.0 0 EX_OK", "", false},
 
-		{"", "EOF"},
-		{"SPAMD/", "short response"},
-		{"SPAMD/1.", "short response"},
-		{"SPAMD/1.1", "short response"},
-		{"SPAMD/1.0 0 EX_OK", "unknown server protocol"},
-		{"SPAMD/1.2 0 EX_OK", "unknown server protocol"},
-		{"SPAMD/1 0 EX_OK", "unknown server protocol"},
-		{"SPAMD/1.1 a EX_OK", "could not parse return code"},
-		{"SPAMD/1.1   EX_OK", "could not parse return code"},
-		{"SPAMD/1.1 65 EX_OK", "65: Data format error"},
-		{"SPAMD/1.1 99 A message", "99: A message"},
+		{"", "EOF", false},
+		{"SPAMD/", "short response", false},
+		{"SPAMD/1.", "short response", false},
+		{"SPAMD/1.1", "short response", false},
+		{"SPAMD/1.2 0 EX_OK", "unknown server protocol", false},
+		{"SPAMD/1 0 EX_OK", "unknown server protocol", false},
+		{"SPAMD/1.1 a EX_OK", "could not parse return code", false},
+		{"SPAMD/1.1   EX_OK", "could not parse return code", false},
+		{"SPAMD/1.1 65 EX_OK", "65: Data format error", false},
+		{"SPAMD/1.1 99 A message", "99: A message", false},
+
+		{"SPAMD/1.5 0 PONG", "", true},
+		{"SPAMD/1.1 0 PONG", "unexpected", true},
+		{"SPAMD/1.5 65 PONG", "code 65", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			out := parseCodeLine(textproto.NewReader(bufio.NewReader(strings.NewReader(tc.in))))
+			out := parseCodeLine(textproto.NewReader(bufio.NewReader(strings.NewReader(tc.in))), tc.isPing)
 			if !test.ErrorContains(out, tc.expected) {
 				t.Errorf("wrong error; want «%v», got «%v»", tc.expected, out)
 			}

@@ -15,13 +15,9 @@ import (
 	"time"
 )
 
-const (
-	clientProtocolVersion = "1.5"
-	serverProtocolVersion = "1.1"
+const clientProtocolVersion = "1.5"
 
-	split     = "§"
-	tableMark = "----"
-)
+var serverProtocolVersions = []string{"1.0", "1.1"}
 
 // mapping of the error codes to the error messages.
 var errorMessages = map[int]string{
@@ -176,26 +172,26 @@ func readResponse(read io.Reader) (headers Header, body string, err error) {
 
 	// We can't use textproto's ReadCodeLine() here, as SA's response is not
 	// quite compatible.
-	if err := parseCodeLine(tp); err != nil {
+	if err := parseCodeLine(tp, false); err != nil {
 		return nil, "", err
 	}
 
 	tpHeader, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("could not read headers: %v", err)
 	}
 
 	headers = Header(tpHeader)
 
 	body, err = readBody(tp)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("could not read body: %v", err)
 	}
 
 	return headers, body, nil
 }
 
-func parseCodeLine(tp *textproto.Reader) error {
+func parseCodeLine(tp *textproto.Reader, isPing bool) error {
 	line, err := tp.ReadLine()
 	if err != nil {
 		return err
@@ -208,11 +204,22 @@ func parseCodeLine(tp *textproto.Reader) error {
 		return fmt.Errorf("unrecognised response: %v", line)
 	}
 
-	// TODO: in some errors it uses version 1.0:
-	//     SPAMD/1.0 76 Bad header line: ASDASD
-	if version := line[6:9]; version != serverProtocolVersion {
-		return fmt.Errorf("unknown server protocol version %v; we only understand version %v",
-			version, serverProtocolVersion)
+	version := line[6:9]
+
+	// The PING command is special as it will return the *client* version,
+	// rather than the server version.
+	if isPing {
+		if version != clientProtocolVersion {
+			return fmt.Errorf("unexpected version: %v; we expected %v",
+				version, clientProtocolVersion)
+		}
+	} else {
+		// in some errors it uses version 1.0, so accept both 1.0 and 1.1.
+		//     spamd/1.0 76 bad header line: asdasd
+		if !supportedVersion(version) {
+			return fmt.Errorf("unknown server protocol version %v; we only understand versions %v",
+				version, serverProtocolVersions)
+		}
 	}
 
 	s := strings.Split(line[10:], " ")
@@ -229,6 +236,15 @@ func parseCodeLine(tp *textproto.Reader) error {
 	}
 
 	return nil
+}
+
+func supportedVersion(v string) bool {
+	for i := range serverProtocolVersions {
+		if serverProtocolVersions[i] == v {
+			return true
+		}
+	}
+	return false
 }
 
 func readBody(tp *textproto.Reader) (string, error) {
