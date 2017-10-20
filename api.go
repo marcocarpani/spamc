@@ -1,10 +1,12 @@
 package spamc
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"net"
+	"net/textproto"
 	"strings"
 	"time"
 )
@@ -91,6 +93,18 @@ type CheckResponse struct {
 
 	// Symbols that matches; only when the Symbols command is used.
 	Symbols []string
+}
+
+// Ping returns a confirmation that spamd is alive.
+func (c *Client) Ping(ctx context.Context) error {
+	read, err := c.send(ctx, "PING", "", nil)
+	if err != nil {
+		return fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	tp := textproto.NewReader(bufio.NewReader(read))
+	return parseCodeLine(tp, true)
 }
 
 // Check if the passed message is spam.
@@ -185,11 +199,6 @@ func (c *Client) Skip(
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(CmdSkip, msg, headers)
-}
-
-// Ping returns a confirmation that spamd is alive.
-func (c *Client) Ping(ctx context.Context) (*Response, error) {
-	return c.simpleCall(CmdPing, "", nil)
 }
 
 // Process this message and return a modified message.

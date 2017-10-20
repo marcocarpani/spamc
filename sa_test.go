@@ -45,12 +45,9 @@ func TestSACommands(t *testing.T) {
 
 func TestSAPing(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Ping(context.Background())
+	err := client.Ping(context.Background())
 	if err != nil {
 		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
 	}
 }
 
