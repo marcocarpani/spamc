@@ -21,16 +21,16 @@ func TestWrite(t *testing.T) {
 	}{
 		{
 			"CMD", "Message", Header{HeaderUser: []string{"xx"}},
-			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: xx\r\n\r\nMessage",
+			"CMD SPAMC/1.5\r\nContent-length: 9\r\nUser: xx\r\n\r\nMessage\r\n",
 			"",
 		},
 		{
 			"CMD", "Message", nil,
-			"CMD SPAMC/1.5\r\nContent-length: 7\r\n\r\nMessage",
+			"CMD SPAMC/1.5\r\nContent-length: 9\r\n\r\nMessage\r\n",
 			"",
 		},
 		{"", "Message", nil, "", "empty command"},
-		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\n\r\n", ""},
+		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 2\r\n\r\n\r\n", ""},
 	}
 
 	for i, tc := range cases {

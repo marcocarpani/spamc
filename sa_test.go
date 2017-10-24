@@ -81,6 +81,26 @@ func TestSALearn(t *testing.T) {
 	}
 }
 
+func TestSANoTrailingNewline(t *testing.T) {
+	client := New(addr, 0)
+
+	r, err := client.Check(context.Background(), "woot", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	r, err = client.Check(context.Background(), "Subject: woot\r\n\r\nwoot", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+}
+
 func TestSACheck(t *testing.T) {
 	client := New(addr, 0)
 	r, err := client.Check(context.Background(), "\r\nPenis viagra\r\n", nil)
