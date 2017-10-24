@@ -94,9 +94,14 @@ func (c *Client) write(
 		return err
 	}
 
+	// Make the sure message always ends in \r\n, if it doesn't SA will just
+	// keep reading from the connection and it will block until it timouts.
+	if !strings.HasSuffix(message, "\r\n") {
+		message += "\r\n"
+	}
+
 	// Always add Content-length header.
-	// TODO: Is the +2 always required?
-	err = tp.PrintfLine("Content-length: %v", len(message)+2)
+	err = tp.PrintfLine("Content-length: %v", len(message))
 	if err != nil {
 		return err
 	}
@@ -116,7 +121,7 @@ func (c *Client) write(
 	}
 
 	// Write body.
-	_, err = tp.W.WriteString(strings.TrimSpace(message) + "\r\n\r\n")
+	_, err = tp.W.WriteString(message)
 	if err != nil {
 		return err
 	}
