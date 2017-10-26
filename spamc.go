@@ -73,7 +73,7 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 	var headers bytes.Buffer
 	var rest bytes.Buffer
 
-	isAscii := func(m []byte) bool {
+	isASCII := func(m []byte) bool {
 		for _, c := range m {
 			if c > 127 {
 				return false
@@ -84,7 +84,7 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 
 	r := bufio.NewReader(message)
 
-	var returnError error = nil
+	var returnError error
 
 	// we assume that there is no newline between headers and body, so increment size
 	size += 2
@@ -113,7 +113,7 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 					returnError = err
 					break
 				}
-				if !isAscii(line) {
+				if !isASCII(line) {
 					rest.Write(line)
 					returnError = errors.New("non ascii characters found: [" + string(line) + "]")
 					break
@@ -143,7 +143,7 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 			returnError = errors.New("malformed MIME header line: [" + string(line) + "]")
 			break
 		}
-		if !isAscii(line) {
+		if !isASCII(line) {
 			rest.Write(line)
 			returnError = errors.New("non ascii characters found: [" + string(line) + "]")
 			break
