@@ -9,6 +9,7 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
+	"io"
 )
 
 // Command types.
@@ -96,7 +97,7 @@ type CheckResponse struct {
 
 // Ping returns a confirmation that spamd is alive.
 func (c *Client) Ping(ctx context.Context) error {
-	read, err := c.send(ctx, "PING", "", nil)
+	read, err := c.send(ctx, "PING", strings.NewReader(""), nil)
 	if err != nil {
 		return fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -109,7 +110,8 @@ func (c *Client) Ping(ctx context.Context) error {
 // Check if the passed message is spam.
 func (c *Client) Check(
 	ctx context.Context,
-	msg string, headers Header,
+	msg io.ReadSeeker,
+	headers Header,
 ) (*CheckResponse, error) {
 
 	read, err := c.send(ctx, "CHECK", msg, headers)
@@ -139,7 +141,7 @@ func (c *Client) Check(
 // symbols that were hit.
 func (c *Client) Symbols(
 	ctx context.Context,
-	msg string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*CheckResponse, error) {
 
@@ -175,7 +177,7 @@ func (c *Client) Symbols(
 // Report checks if the message is spam and returns the score plus report.
 func (c *Client) Report(
 	ctx context.Context,
-	msg string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(CmdReport, msg, headers)
@@ -185,7 +187,7 @@ func (c *Client) Report(
 // if the message is spam.
 func (c *Client) ReportIfSpam(
 	ctx context.Context,
-	msg string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(CmdReportIfspam, msg, headers)
@@ -194,7 +196,7 @@ func (c *Client) ReportIfSpam(
 // Process this message and return a modified message.
 func (c *Client) Process(
 	ctx context.Context,
-	msg string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(CmdProcess, msg, headers)
@@ -207,7 +209,7 @@ func (c *Client) Process(
 // reporting, forgetting, revoking).
 func (c *Client) Tell(
 	ctx context.Context,
-	msg string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 	read, err := c.send(ctx, CmdTell, msg, headers)
@@ -233,7 +235,7 @@ func (c *Client) Tell(
 // the body.
 func (c *Client) Headers(
 	ctx context.Context,
-	msg string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(CmdHeaders, msg, headers)
@@ -245,7 +247,8 @@ func (c *Client) Headers(
 // Use one of the Learn* constants as the learnType.
 func (c *Client) Learn(
 	ctx context.Context,
-	learnType, msg string,
+	learnType string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 
@@ -270,7 +273,8 @@ func (c *Client) Learn(
 // Send a command a SpamAssassin.
 func (c *Client) Send(
 	ctx context.Context,
-	cmd, msg string,
+	cmd string,
+	msg io.ReadSeeker,
 	headers Header,
 ) (*Response, error) {
 	return c.simpleCall(strings.ToUpper(cmd), msg, headers)

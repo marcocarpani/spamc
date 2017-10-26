@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"io"
+	"strings"
 )
 
 var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
@@ -15,11 +17,11 @@ var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
 // robust test in place.
 func TestSACommands(t *testing.T) {
 	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
+	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 
 	cases := []struct {
 		name string
-		fun  func(context.Context, string, Header) (*Response, error)
+		fun  func(context.Context, io.ReadSeeker, Header) (*Response, error)
 	}{
 		//{"Check", client.Check},
 		//{"Symbols", client.Symbols},
@@ -52,7 +54,7 @@ func TestSAPing(t *testing.T) {
 
 func TestSATell(t *testing.T) {
 	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
+	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 	r, err := client.Tell(context.Background(), message, Header{
 		"Message-class": []string{"spam"},
 		"Set":           []string{"local"},
@@ -67,7 +69,7 @@ func TestSATell(t *testing.T) {
 
 func TestSALearn(t *testing.T) {
 	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
+	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 	r, err := client.Learn(context.Background(), LearnHam, message, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +82,7 @@ func TestSALearn(t *testing.T) {
 func TestSANoTrailingNewline(t *testing.T) {
 	client := New(addr, 0)
 
-	r, err := client.Check(context.Background(), "woot", nil)
+	r, err := client.Check(context.Background(), strings.NewReader("woot"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +90,7 @@ func TestSANoTrailingNewline(t *testing.T) {
 		t.Fatal("r is nil")
 	}
 
-	r, err = client.Check(context.Background(), "Subject: woot\r\n\r\nwoot", nil)
+	r, err = client.Check(context.Background(), strings.NewReader("Subject: woot\r\n\r\nwoot"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestSANoTrailingNewline(t *testing.T) {
 
 func TestSACheck(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Check(context.Background(), "\r\nPenis viagra\r\n", nil)
+	r, err := client.Check(context.Background(), strings.NewReader("\r\nPenis viagra\r\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,13 +112,13 @@ func TestSACheck(t *testing.T) {
 
 func TestSASymbols(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Symbols(context.Background(), ""+
+	r, err := client.Symbols(context.Background(), strings.NewReader(""+
 		"Date: now\r\n"+
 		"From: a@example.com\r\n"+
 		"Subject: Hello\r\n"+
 		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
 		"\r\n\r\nthe body\r\n"+
-		"", nil)
+		""), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

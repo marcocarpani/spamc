@@ -8,6 +8,7 @@ import (
 
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
+	"strings"
 )
 
 func TestCheck(t *testing.T) {
@@ -44,7 +45,7 @@ func TestCheck(t *testing.T) {
 			testConnHook = conn
 			defer func() { testConnHook = nil }()
 
-			out, err := c.Check(context.Background(), "A message", nil)
+			out, err := c.Check(context.Background(), strings.NewReader("A message"), nil)
 			if !test.ErrorContains(err, tc.wantErr) {
 				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", err, tc.wantErr)
 			}
@@ -85,7 +86,7 @@ func TestSymbols(t *testing.T) {
 			testConnHook = conn
 			defer func() { testConnHook = nil }()
 
-			out, err := c.Symbols(context.Background(), "A message", nil)
+			out, err := c.Symbols(context.Background(), strings.NewReader("A message"), nil)
 			if !test.ErrorContains(err, tc.wantErr) {
 				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", err, tc.wantErr)
 			}

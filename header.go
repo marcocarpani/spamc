@@ -4,10 +4,11 @@ import "net/textproto"
 
 // Header key constants.
 const (
-	HeaderUser         = "User"
-	HeaderMessageClass = "Message-class"
-	HeaderSet          = "Set"
-	HeaderRemove       = "Remove"
+	HeaderContentLength = "Content-length"
+	HeaderUser          = "User"
+	HeaderMessageClass  = "Message-class"
+	HeaderSet           = "Set"
+	HeaderRemove        = "Remove"
 )
 
 // Header for requests.

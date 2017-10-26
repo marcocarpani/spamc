@@ -10,27 +10,29 @@ import (
 
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
+	"io"
 )
 
 func TestWrite(t *testing.T) {
 	cases := []struct {
-		inCmd, inMsg string
+		inCmd        string
+		inMsg        io.ReadSeeker
 		inHeader     Header
 		want         string
 		wantErr      string
 	}{
 		{
-			"CMD", "Message", Header{HeaderUser: []string{"xx"}},
-			"CMD SPAMC/1.5\r\nContent-length: 9\r\nUser: xx\r\n\r\nMessage\r\n",
+			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
 		{
-			"CMD", "Message", nil,
-			"CMD SPAMC/1.5\r\nContent-length: 9\r\n\r\nMessage\r\n",
+			"CMD", strings.NewReader("Message"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{"", "Message", nil, "", "empty command"},
-		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 2\r\n\r\n\r\n", ""},
+		{"", strings.NewReader("Message"), nil, "", "empty command"},
+		{"CMD", strings.NewReader(""), nil, "CMD SPAMC/1.5\r\nContent-length: 4\r\n\r\n\r\n\r\n", ""},
 	}
 
 	for i, tc := range cases {
