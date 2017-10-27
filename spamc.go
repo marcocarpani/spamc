@@ -9,10 +9,10 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"time"
-	"os"
 )
 
 const clientProtocolVersion = "1.5"

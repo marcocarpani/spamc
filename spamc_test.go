@@ -15,11 +15,11 @@ import (
 
 func TestWrite(t *testing.T) {
 	cases := []struct {
-		inCmd        string
-		inMsg        io.ReadSeeker
-		inHeader     Header
-		want         string
-		wantErr      string
+		inCmd    string
+		inMsg    io.ReadSeeker
+		inHeader Header
+		want     string
+		wantErr  string
 	}{
 		{
 			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},

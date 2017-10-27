@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/textproto"
 	"strings"
 	"time"
-	"io"
 )
 
 // Command types.

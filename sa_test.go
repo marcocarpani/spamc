@@ -5,10 +5,10 @@ package spamc
 import (
 	"context"
 	"fmt"
-	"os"
-	"testing"
 	"io"
+	"os"
 	"strings"
+	"testing"
 )
 
 var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
