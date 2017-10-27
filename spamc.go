@@ -100,7 +100,10 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 			// decrement size
 			size -= 2
 			// read and discard it, and we are done
-			r.Read(make([]byte, 2))
+			_, err = r.Read(make([]byte, 2))
+			if err != nil {
+				returnError = err
+			}
 			break
 		}
 		if chars[0] == ' ' || chars[0] == '\t' {
@@ -156,7 +159,7 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 		// make sure to seek back to the current position or
 		// we mess up the internal message pointer
 		current, _ := message.Seek(0, io.SeekCurrent)
-		defer message.Seek(current, io.SeekStart)
+		defer message.Seek(current, io.SeekStart) // nolint: errcheck
 
 		_, err := message.Seek(-2, io.SeekEnd)
 
@@ -257,10 +260,12 @@ func (c *Client) write(
 	}
 
 	// Make the sure message always ends in \r\n, if it doesn't SA will just
-	// keep reading from the connection and it will block until it timouts.
-	messageReader, messageSize, err := c.rearrangeMessageReader(message, size)
+	// keep reading from the connection and it will block until it timeouts.
 
-	err = tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
+	// messageReader contains the new message messageSize and we suppress warnings, _
+	messageReader, messageSize, _ := c.rearrangeMessageReader(message, size)
+
+	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
 	if err != nil {
 		return err
 	}
