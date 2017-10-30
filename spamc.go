@@ -253,6 +253,9 @@ func (c *Client) write(
 			}
 			size = headerContentLength
 		}
+		// delete the Content-length header from headers is set, prevents double sending, can not use
+		// headers.Delete here .. HeaderContentLength is not Canonical
+		delete(headers, HeaderContentLength)
 	}
 
 	// Make the sure message always ends in \r\n, if it doesn't SA will just
