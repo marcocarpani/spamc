@@ -77,6 +77,31 @@ func (c Client) isASCII(m []byte) bool {
 	}
 	return true
 }
+
+// isMessageTerminated will check to see if the message is \r\n terminated
+func (c Client) isMessageTerminated(message io.ReadSeeker) (bool, error) {
+	// make sure to seek back to the current position or
+	// we mess up the internal message pointer
+	current, _ := message.Seek(0, io.SeekCurrent)
+	defer message.Seek(current, io.SeekStart) // nolint: errcheck
+
+	_, err := message.Seek(-2, io.SeekEnd)
+
+	if err != nil {
+		return false, err
+	}
+	buf := make([]byte, 2)
+	_, err = message.Read(buf)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(buf, []byte("\r\n")) {
+		// and we are done, its terminated
+		return true, nil
+	}
+	return false, nil
+}
+
 // rearrangeMessageReader will rearrange the message reader to make sure SA will understand the message
 func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Reader, int64, error) {
 	var headers bytes.Buffer
@@ -149,31 +174,7 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 		headers.Write(line)
 	}
 
-	// isTerminated will check last characters of the reader for end of line
-	isTerminated := func(message io.ReadSeeker) (bool, error) {
-		// make sure to seek back to the current position or
-		// we mess up the internal message pointer
-		current, _ := message.Seek(0, io.SeekCurrent)
-		defer message.Seek(current, io.SeekStart) // nolint: errcheck
-
-		_, err := message.Seek(-2, io.SeekEnd)
-
-		if err != nil {
-			return false, err
-		}
-		buf := make([]byte, 2)
-		_, err = message.Read(buf)
-		if err != nil {
-			return false, err
-		}
-		if bytes.Equal(buf, []byte("\r\n")) {
-			// and we are done, its terminated
-			return true, nil
-		}
-		return false, nil
-	}
-
-	messageTerminated, err := isTerminated(message)
+	messageTerminated, err := c.isMessageTerminated(message)
 	if err != nil {
 		returnError = err
 	}

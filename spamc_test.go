@@ -36,7 +36,12 @@ func TestWrite(t *testing.T) {
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{
+		{    // test with correctly terminated message
+			"CMD", strings.NewReader("Message\r\n"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
+			"",
+		},
+		{    // test incorrectly terminated message
 			"CMD", strings.NewReader("Message"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
