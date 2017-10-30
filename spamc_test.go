@@ -31,7 +31,26 @@ func TestWrite(t *testing.T) {
 			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\n\r\n☠Key: Value\r\nMessage\r\n",
 			"",
 		},
-		{
+		{    // correct multiline header
+			"CMD", strings.NewReader("Key1: Value1A\r\n\tValue1B\r\nKey2: Value2A\r\n\r\nMessage"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 51\r\n\r\nKey1: Value1A\r\n\tValue1B\r\nKey2: Value2A\r\n\r\nMessage\r\n",
+			"",
+		},
+		{    // bad multiline header
+			"CMD", strings.NewReader("Key1: Value1A\r\nValue1B\r\nKey2: Value2A\r\n\r\nMessage"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 52\r\n\r\nKey1: Value1A\r\n\r\nValue1B\r\nKey2: Value2A\r\n\r\nMessage\r\n",
+			"",
+		},
+		{    // bad start of headers
+			"CMD", strings.NewReader("\tValue1A\r\nKey2: Value2A\r\n\r\nMessage"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 38\r\n\r\n\r\n\tValue1A\r\nKey2: Value2A\r\n\r\nMessage\r\n",
+			"",
+		},
+		{    // test with wrong Content-length header in something we can read the size of
+			"CMD", strings.NewReader("Message"), Header{HeaderContentLength: []string{"15"}},
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
+			"",
+		},
 			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
 			"",
