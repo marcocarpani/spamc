@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"bytes"
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
 	"io"
-	"bytes"
 )
 
 func TestWrite(t *testing.T) {
@@ -22,52 +22,52 @@ func TestWrite(t *testing.T) {
 		want     string
 		wantErr  string
 	}{
-		{    // header value (ok) with utf-8
+		{ // header value (ok) with utf-8
 			"CMD", strings.NewReader("Key: ☠Value\r\nMessage"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\nKey: ☠Value\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // header key (bad) with utf-8, will make it a body
+		{ // header key (bad) with utf-8, will make it a body
 			"CMD", strings.NewReader("☠Key: Value\r\nMessage"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\n\r\n☠Key: Value\r\nMessage\r\n",
 			"",
 		},
-		{    // correct multiline header
+		{ // correct multiline header
 			"CMD", strings.NewReader("Key1: Value1A\r\n\tValue1B\r\nKey2: Value2A\r\n\r\nMessage"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 51\r\n\r\nKey1: Value1A\r\n\tValue1B\r\nKey2: Value2A\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // bad multiline header
+		{ // bad multiline header
 			"CMD", strings.NewReader("Key1: Value1A\r\nValue1B\r\nKey2: Value2A\r\n\r\nMessage"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 52\r\n\r\nKey1: Value1A\r\n\r\nValue1B\r\nKey2: Value2A\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // bad start of headers
+		{ // bad start of headers
 			"CMD", strings.NewReader("\tValue1A\r\nKey2: Value2A\r\n\r\nMessage"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 38\r\n\r\n\r\n\tValue1A\r\nKey2: Value2A\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // test with wrong Content-length header in something we can read the size of
+		{ // test with wrong Content-length header in something we can read the size of
 			"CMD", strings.NewReader("Message"), Header{HeaderContentLength: []string{"15"}},
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // test user without default user set
+		{ // test user without default user set
 			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // test with correctly terminated message
+		{ // test with correctly terminated message
 			"CMD", strings.NewReader("Message\r\n"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // test incorrectly terminated message
+		{ // test incorrectly terminated message
 			"CMD", strings.NewReader("Message"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{    // testing bytes.NewReader
+		{ // testing bytes.NewReader
 			"CMD", bytes.NewReader([]byte("Message")), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
@@ -101,13 +101,13 @@ func TestWriteDefaultUser(t *testing.T) {
 		inHeader Header
 		want     string
 		wantErr  string
-	} {
-		{	// test default user set
+	}{
+		{ // test default user set
 			"CMD", strings.NewReader("\r\nMessage\r\n"), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: aa\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
-		{	// test default user set passing user header
+		{ // test default user set passing user header
 			"CMD", strings.NewReader("\r\nMessage\r\n"), Header{HeaderUser: []string{"xx"}},
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
 			"",
