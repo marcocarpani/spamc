@@ -51,6 +51,7 @@ func TestWrite(t *testing.T) {
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
+		{    // test user without default user set
 			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
 			"",
@@ -73,6 +74,45 @@ func TestWrite(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			conn := fakeconn.New()
 			c := Client{conn: conn}
+
+			err := c.write(conn, tc.inCmd, tc.inMsg, tc.inHeader)
+			out := conn.Written.String()
+			if out != tc.want {
+				t.Errorf("wrong data written\nout:  %#v\nwant: %#v\n",
+					out, tc.want)
+			}
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", out, tc.want)
+			}
+		})
+	}
+}
+
+func TestWriteDefaultUser(t *testing.T) {
+	cases := []struct {
+		inCmd    string
+		inMsg    io.ReadSeeker
+		inHeader Header
+		want     string
+		wantErr  string
+	} {
+		{	// test default user set
+			"CMD", strings.NewReader("\r\nMessage\r\n"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: aa\r\n\r\n\r\nMessage\r\n",
+			"",
+		},
+		{	// test default user set passing user header
+			"CMD", strings.NewReader("\r\nMessage\r\n"), Header{HeaderUser: []string{"xx"}},
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
+			"",
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			conn := fakeconn.New()
+			c := Client{conn: conn}
+			c.DefaultUser = "aa"
 
 			err := c.write(conn, tc.inCmd, tc.inMsg, tc.inHeader)
 			out := conn.Written.String()
