@@ -21,6 +21,16 @@ func TestWrite(t *testing.T) {
 		want     string
 		wantErr  string
 	}{
+		{    // header value (ok) with utf-8
+			"CMD", strings.NewReader("Key: ☠Value\r\nMessage"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\nKey: ☠Value\r\n\r\nMessage\r\n",
+			"",
+		},
+		{    // header key (bad) with utf-8, will make it a body
+			"CMD", strings.NewReader("☠Key: Value\r\nMessage"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\n\r\n☠Key: Value\r\nMessage\r\n",
+			"",
+		},
 		{
 			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",

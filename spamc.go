@@ -68,19 +68,19 @@ func (c *Client) send(
 	return conn, nil
 }
 
+// isASCII checks for non-ascii bytes
+func (c Client) isASCII(m []byte) bool {
+	for _, c := range m {
+		if c > 127 {
+			return false
+		}
+	}
+	return true
+}
 // rearrangeMessageReader will rearrange the message reader to make sure SA will understand the message
 func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Reader, int64, error) {
 	var headers bytes.Buffer
 	var rest bytes.Buffer
-
-	isASCII := func(m []byte) bool {
-		for _, c := range m {
-			if c > 127 {
-				return false
-			}
-		}
-		return true
-	}
 
 	r := bufio.NewReader(message)
 
@@ -116,11 +116,6 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 					returnError = err
 					break
 				}
-				if !isASCII(line) {
-					rest.Write(line)
-					returnError = errors.New("non ascii characters found: [" + string(line) + "]")
-					break
-				}
 				headers.Write(line)
 				continue
 			} else {
@@ -146,9 +141,9 @@ func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Re
 			returnError = errors.New("malformed MIME header line: [" + string(line) + "]")
 			break
 		}
-		if !isASCII(line) {
+		if !c.isASCII(line[0:i]) {
 			rest.Write(line)
-			returnError = errors.New("non ascii characters found: [" + string(line) + "]")
+			returnError = errors.New("non ascii characters found in header key: [" + string(line[0:i]) + "]")
 			break
 		}
 		headers.Write(line)
