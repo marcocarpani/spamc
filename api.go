@@ -13,6 +13,7 @@ import (
 
 // Command types.
 const (
+	CmdCheck        = "CHECK"
 	CmdSymbols      = "SYMBOLS"
 	CmdReport       = "REPORT"
 	CmdReportIfspam = "REPORT_IFSPAM"
@@ -37,12 +38,6 @@ type Client struct {
 	host   string
 	dialer net.Dialer
 	conn   net.Conn
-}
-
-// Response is the default response struct.
-type Response struct {
-	Message string
-	Vars    map[string]interface{}
 }
 
 // Error is used for spamd responses; it contains the spamd exit code.
@@ -76,10 +71,8 @@ func NewWithDialer(host string, dialer net.Dialer) *Client {
 	}
 }
 
-// CheckResponse is the response from the Check command.
+// CheckResponse is the response from the Check and Symbols commands.
 type CheckResponse struct {
-	//Response
-
 	// IsSpam reports if this message is considered spam.
 	IsSpam bool
 
@@ -96,7 +89,7 @@ type CheckResponse struct {
 
 // Ping returns a confirmation that spamd is alive.
 func (c *Client) Ping(ctx context.Context) error {
-	read, err := c.send(ctx, "PING", "", nil)
+	read, err := c.send(ctx, CmdPing, "", nil)
 	if err != nil {
 		return fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -112,7 +105,7 @@ func (c *Client) Check(
 	msg string, headers Header,
 ) (*CheckResponse, error) {
 
-	read, err := c.send(ctx, "CHECK", msg, headers)
+	read, err := c.send(ctx, CmdCheck, msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -148,13 +141,13 @@ func (c *Client) Symbols(
 	// Spam: False ; 1.6 / 5.0
 	//
 	// INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS
-	read, err := c.send(ctx, "SYMBOLS", msg, headers)
+	read, err := c.send(ctx, CmdSymbols, msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
 	defer read.Close() // nolint: errcheck
 
-	respHeaders, body, err := readResponse(read)
+	respHeaders, tp, err := readResponse(read)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse spamd response: %v", err)
 	}
@@ -162,6 +155,11 @@ func (c *Client) Symbols(
 	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
 		return nil, fmt.Errorf("could not read Spam header: %v", err)
+	}
+
+	body, err := readBody(tp)
+	if err != nil {
+		return nil, fmt.Errorf("could not read body: %v", err)
 	}
 
 	return &CheckResponse{
@@ -172,23 +170,75 @@ func (c *Client) Symbols(
 	}, nil
 }
 
-// Report checks if the message is spam and returns the score plus report.
+// ReportResponse is the response from the Report and ReportIfSpam commands.
+type ReportResponse struct {
+	// IsSpam reports if this message is considered spam.
+	IsSpam bool
+
+	// Score is the spam score of this message.
+	Score float64
+
+	// BaseScore is the "minimum spam score" configured on the server. This
+	// is usually 5.0.
+	BaseScore float64
+
+	// Report broken down in the found rules and their descriptions.
+	Report Report
+}
+
+// Report gives a detailed textual report for the message.
 func (c *Client) Report(
 	ctx context.Context,
 	msg string,
 	headers Header,
-) (*Response, error) {
-	return c.simpleCall(CmdReport, msg, headers)
+) (*ReportResponse, error) {
+	return c.report(ctx, CmdReport, msg, headers)
 }
 
-// ReportIfSpam checks if the message is spam and returns the score plus report
-// if the message is spam.
+// ReportIfSpam gives a detailed textual report for the message if it is
+// considered spam. If it's not it will set just the spam score.
 func (c *Client) ReportIfSpam(
 	ctx context.Context,
 	msg string,
 	headers Header,
-) (*Response, error) {
-	return c.simpleCall(CmdReportIfspam, msg, headers)
+) (*ReportResponse, error) {
+	return c.report(ctx, CmdReportIfspam, msg, headers)
+}
+
+// Implement Report and ReportIfSpam
+func (c *Client) report(
+	ctx context.Context,
+	cmd, msg string,
+	headers Header,
+) (*ReportResponse, error) {
+
+	read, err := c.send(ctx, cmd, msg, headers)
+	if err != nil {
+		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	respHeaders, tp, err := readResponse(read)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+	}
+
+	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("could not read Spam header: %v", err)
+	}
+
+	report, err := parseReport(tp)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse report: %v", err)
+	}
+
+	return &ReportResponse{
+		IsSpam:    isSpam,
+		Score:     score,
+		BaseScore: baseScore,
+		Report:    report,
+	}, nil
 }
 
 // Process this message and return a modified message.

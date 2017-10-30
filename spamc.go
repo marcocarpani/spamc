@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/textproto"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -174,29 +175,21 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 // various commands.
 //
 // A non-0 (or EX_OK) status code is considered an error.
-func readResponse(read io.Reader) (headers Header, body string, err error) {
-	data := bufio.NewReader(read)
-	tp := textproto.NewReader(data)
+func readResponse(read io.Reader) (Header, *textproto.Reader, error) {
+	tp := textproto.NewReader(bufio.NewReader(read))
 
 	// We can't use textproto's ReadCodeLine() here, as SA's response is not
 	// quite compatible.
 	if err := parseCodeLine(tp, false); err != nil {
-		return nil, "", err
+		return nil, tp, err
 	}
 
 	tpHeader, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, "", fmt.Errorf("could not read headers: %v", err)
+		return nil, tp, fmt.Errorf("could not read headers: %v", err)
 	}
 
-	headers = Header(tpHeader)
-
-	body, err = readBody(tp)
-	if err != nil {
-		return nil, "", fmt.Errorf("could not read body: %v", err)
-	}
-
-	return headers, body, nil
+	return Header(tpHeader), tp, nil
 }
 
 func parseCodeLine(tp *textproto.Reader, isPing bool) error {
@@ -318,4 +311,99 @@ func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
 	}
 
 	return isSpam, score, baseScore, nil
+}
+
+// Spam detection software, running on the system "d311d8df23f8",
+// has NOT identified this incoming email as spam.  The original
+// message has been attached to this so you can view it or label
+// similar future email.  If you have any questions, see
+// the administrator of that system for details.
+//
+// Content preview:  the body [...]
+//
+// Content analysis details:   (1.6 points, 5.0 required)
+//
+//  pts rule name              description
+// ---- ---------------------- --------------------------------------------------
+//  0.4 INVALID_DATE           Invalid Date: header (not RFC 2822)
+// -0.0 NO_RELAYS              Informational: message was not relayed via SMTP
+//  1.2 MISSING_HEADERS        Missing To: header
+// -0.0 NO_RECEIVED            Informational: message has no Received headers
+
+// Report asd
+type Report struct {
+	Intro string
+	Table []struct {
+		Points      float64
+		Rule        string
+		Description string
+	}
+}
+
+func (r Report) String() string {
+	table := "pts rule name              description\n"
+	table += "---- ---------------------- --------------------------------------------------\n"
+
+	for _, t := range r.Table {
+		//table += fmt.Sprintf("%v", t)
+		table += fmt.Sprintf(" %v %v           %v\n", t.Points, t.Rule, t.Description)
+	}
+
+	return r.Intro + "\n\n" + table
+}
+
+var reTableLine = regexp.MustCompile(`(-?[0-9.]+)\s+([A-Z0-9_]+)\s+(.+)`)
+
+func parseReport(tp *textproto.Reader) (Report, error) {
+	report := Report{}
+	table := false
+
+	for {
+		line, err := tp.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return report, err
+		}
+
+		switch {
+		case !table && strings.HasPrefix(line, "pts rule name"):
+			table = true
+
+		case table && strings.HasPrefix(line, "---- -"):
+			continue
+
+		case !table:
+			// TODO: Last line is the table header.
+			report.Intro += line + "\n"
+
+		case table:
+			s := reTableLine.FindAllStringSubmatch(line, -1)
+			if len(s) != 1 {
+				continue
+			}
+
+			if len(s[0]) != 4 {
+				continue
+			}
+
+			points, err := strconv.ParseFloat(s[0][1], 64)
+			if err != nil {
+				continue
+			}
+
+			report.Table = append(report.Table, struct {
+				Points      float64
+				Rule        string
+				Description string
+			}{
+				points, s[0][2], s[0][3],
+			})
+		}
+	}
+
+	report.Intro = strings.TrimSpace(report.Intro)
+
+	return report, nil
 }

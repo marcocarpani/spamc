@@ -21,10 +21,6 @@ func TestSACommands(t *testing.T) {
 		name string
 		fun  func(context.Context, string, Header) (*Response, error)
 	}{
-		//{"Check", client.Check},
-		//{"Symbols", client.Symbols},
-		{"Report", client.Report},
-		{"ReportIfSpam", client.ReportIfSpam},
 		{"Process", client.Process},
 		{"Header", client.Headers},
 	}
@@ -123,4 +119,23 @@ func TestSASymbols(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
+}
+
+func TestSAReport(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Report(context.Background(), ""+
+		"Date: now\r\n"+
+		"From: a@example.com\r\n"+
+		"Subject: Hello\r\n"+
+		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
+		"\r\n\r\nthe body"+
+		"", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	fmt.Printf("%#v\n", r)
 }
