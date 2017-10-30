@@ -11,6 +11,7 @@ import (
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
 	"io"
+	"bytes"
 )
 
 func TestWrite(t *testing.T) {
@@ -63,6 +64,11 @@ func TestWrite(t *testing.T) {
 		},
 		{    // test incorrectly terminated message
 			"CMD", strings.NewReader("Message"), nil,
+			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
+			"",
+		},
+		{    // testing bytes.NewReader
+			"CMD", bytes.NewReader([]byte("Message")), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
 			"",
 		},
