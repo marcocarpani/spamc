@@ -3,7 +3,6 @@ package spamc
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/textproto"
@@ -246,8 +245,68 @@ func (c *Client) Process(
 	ctx context.Context,
 	msg string,
 	headers Header,
-) (*Response, error) {
-	return c.simpleCall(CmdProcess, msg, headers)
+) (*CheckResponse, error) {
+
+	read, err := c.send(ctx, CmdProcess, msg, headers)
+	if err != nil {
+		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	respHeaders, _, err := readResponse(read)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+	}
+
+	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("could not read Spam header: %v", err)
+	}
+
+	// TODO: Read body
+
+	return &CheckResponse{
+		IsSpam:    isSpam,
+		Score:     score,
+		BaseScore: baseScore,
+	}, nil
+}
+
+// Headers is the same as Process() but returns only modified headers and not
+// the body.
+func (c *Client) Headers(
+	ctx context.Context,
+	msg string,
+	headers Header,
+) (*CheckResponse, error) {
+
+	read, err := c.send(ctx, CmdHeaders, msg, headers)
+	if err != nil {
+		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	respHeaders, _, err := readResponse(read)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+	}
+
+	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("could not read Spam header: %v", err)
+	}
+
+	// TODO: Read body
+
+	return &CheckResponse{
+		IsSpam:    isSpam,
+		Score:     score,
+		BaseScore: baseScore,
+	}, nil
+}
+
+// TellResponse is the response of a TELL command.
+type TellResponse struct {
 }
 
 // Tell what type of we are to process and what should be done with that
@@ -259,34 +318,40 @@ func (c *Client) Tell(
 	ctx context.Context,
 	msg string,
 	headers Header,
-) (*Response, error) {
+) (*TellResponse, error) {
+
 	read, err := c.send(ctx, CmdTell, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		return nil, err
 	}
 
-	r, err := processResponse(CmdTell, read)
+	respHeaders, _, err := readResponse(read)
 	if err != nil {
+		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+	}
+
+	fmt.Printf("%#v\n", respHeaders)
+
+	/*
 		if serr, ok := err.(Error); ok && serr.Code == 69 {
 			return nil, errors.New(
 				"TELL commands are not enabled, set the --allow-tell switch")
 		}
+	*/
 
-		return nil, err
-	}
+	/*
+		returnObj.Vars["didSet"] = false
+		returnObj.Vars["didRemove"] = false
+		if strings.Contains(string(line), "DidRemove") {
+			returnObj.Vars["didRemove"] = true
+		}
+		if strings.Contains(string(line), "DidSet") {
+			returnObj.Vars["didSet"] = true
+		}
+	*/
 
-	return r, nil
-}
-
-// Headers is the same as Process() but returns only modified headers and not
-// the body.
-func (c *Client) Headers(
-	ctx context.Context,
-	msg string,
-	headers Header,
-) (*Response, error) {
-	return c.simpleCall(CmdHeaders, msg, headers)
+	return &TellResponse{}, nil
 }
 
 // Learn if a message is spam. This is a more convenient wrapper around SA's
@@ -297,7 +362,7 @@ func (c *Client) Learn(
 	ctx context.Context,
 	learnType, msg string,
 	headers Header,
-) (*Response, error) {
+) (*TellResponse, error) {
 
 	if headers == nil {
 		headers = make(Header)
@@ -315,13 +380,4 @@ func (c *Client) Learn(
 		return nil, fmt.Errorf("unknown learn type: %v", learnType)
 	}
 	return c.Tell(ctx, msg, headers)
-}
-
-// Send a command a SpamAssassin.
-func (c *Client) Send(
-	ctx context.Context,
-	cmd, msg string,
-	headers Header,
-) (*Response, error) {
-	return c.simpleCall(strings.ToUpper(cmd), msg, headers)
 }
