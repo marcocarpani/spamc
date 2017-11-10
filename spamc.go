@@ -302,6 +302,14 @@ func (c *Client) write(
 		return fmt.Errorf("could not send to spamd: %v", err)
 	}
 
+	// Close connection for writing; this makes sure all buffered data is sent.
+	switch cc := conn.(type) {
+	case *net.TCPConn:
+		return cc.CloseWrite()
+	case *net.UnixConn:
+		return cc.CloseWrite()
+	}
+
 	return nil
 }
 

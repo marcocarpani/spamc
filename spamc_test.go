@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"bytes"
+	"io"
+
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
-	"io"
 )
 
 func TestWrite(t *testing.T) {
@@ -97,21 +98,23 @@ func TestWrite(t *testing.T) {
 func TestWriteDefaultUser(t *testing.T) {
 	cases := []struct {
 		inCmd    string
-		inMsg    io.ReadSeeker
+		inMsg    string
 		inHeader Header
 		want     string
 		wantErr  string
 	}{
-		{ // test default user set
-			"CMD", strings.NewReader("\r\nMessage\r\n"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: aa\r\n\r\n\r\nMessage\r\n",
+		{
+			"CMD", "Message", Header{HeaderUser: []string{"xx"}},
+			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: xx\r\n\r\nMessage",
 			"",
 		},
-		{ // test default user set passing user header
-			"CMD", strings.NewReader("\r\nMessage\r\n"), Header{HeaderUser: []string{"xx"}},
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
+		{
+			"CMD", "Message", nil,
+			"CMD SPAMC/1.5\r\nContent-length: 7\r\n\r\nMessage",
 			"",
 		},
+		{"", "Message", nil, "", "empty command"},
+		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\n\r\n", ""},
 	}
 
 	for i, tc := range cases {
@@ -120,7 +123,7 @@ func TestWriteDefaultUser(t *testing.T) {
 			c := Client{conn: conn}
 			c.DefaultUser = "aa"
 
-			err := c.write(conn, tc.inCmd, tc.inMsg, tc.inHeader)
+			err := c.write(conn, tc.inCmd, strings.NewReader(tc.inMsg), tc.inHeader)
 			out := conn.Written.String()
 			if out != tc.want {
 				t.Errorf("wrong data written\nout:  %#v\nwant: %#v\n",
