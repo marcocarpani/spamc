@@ -102,105 +102,6 @@ func (c Client) isMessageTerminated(message io.ReadSeeker) (bool, error) {
 	return false, nil
 }
 
-// rearrangeMessageReader will rearrange the message reader to make sure SA will understand the message
-func (c Client) rearrangeMessageReader(message io.ReadSeeker, size int64) (io.Reader, int64, error) {
-	var headers bytes.Buffer
-	var rest bytes.Buffer
-
-	r := bufio.NewReader(message)
-
-	var returnError error
-
-	// we assume that there is no newline between headers and body, so increment size
-	size += 2
-
-	for {
-		chars, err := r.Peek(2)
-		if err != nil {
-			returnError = err
-			break
-		}
-		if bytes.Equal(chars, []byte("\r\n")) {
-			// we were wrong there was a newline between headers and body
-			// decrement size
-			size -= 2
-			// read and discard it, and we are done
-			_, err = r.Read(make([]byte, 2))
-			if err != nil {
-				returnError = err
-			}
-			break
-		}
-		if chars[0] == ' ' || chars[0] == '\t' {
-			// if we have a previous key append value, and continue
-			// if not we are not reading headers
-			if headers.Len() > 0 {
-				line, err := r.ReadSlice('\n')
-				if err != nil {
-					rest.Write(line)
-					returnError = err
-					break
-				}
-				headers.Write(line)
-				continue
-			} else {
-				// this line start with whitespace but there is no
-				// previous header to append, so it's not a header
-				returnError = errors.New("multiline header part found without first header")
-				break
-			}
-		}
-
-		// it should be a header read it
-		line, err := r.ReadSlice('\n')
-
-		if err != nil {
-			rest.Write(line)
-			returnError = err
-			break
-		}
-		// Check for a key, we must have one for it to be a header
-		i := bytes.IndexByte(line, ':')
-		if i < 0 {
-			rest.Write(line)
-			returnError = errors.New("malformed MIME header line: [" + string(line) + "]")
-			break
-		}
-		if !c.isASCII(line[0:i]) {
-			rest.Write(line)
-			returnError = errors.New("non ascii characters found in header key: [" + string(line[0:i]) + "]")
-			break
-		}
-		headers.Write(line)
-	}
-
-	messageTerminated, err := c.isMessageTerminated(message)
-	if err != nil {
-		returnError = err
-	}
-
-	end := ""
-	if !messageTerminated {
-		size += 2
-		end = "\r\n"
-	}
-
-	resultReader := io.MultiReader(
-		bufio.NewReader(&headers),
-		strings.NewReader("\r\n"),
-		bufio.NewReader(&rest),
-		r,
-		strings.NewReader(end),
-	)
-
-	// we might have hit EOF, reset that
-	if returnError == io.EOF {
-		returnError = nil
-	}
-
-	return resultReader, size, returnError
-}
-
 // write the command to the connection.
 func (c *Client) write(
 	conn net.Conn,
@@ -258,20 +159,14 @@ func (c *Client) write(
 		delete(headers, HeaderContentLength)
 	}
 
-	// Make the sure message always ends in \r\n, if it doesn't SA will just
-	// keep reading from the connection and it will block until it timeouts.
-
-	// messageReader contains the new message messageSize and we suppress warnings, _
-	messageReader, messageSize, _ := c.rearrangeMessageReader(message, size)
-
 	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
 	if err != nil {
 		return err
 	}
 
 	// Always add Content-length header.
-	if messageSize >= 0 {
-		err = tp.PrintfLine("Content-length: %v", messageSize)
+	if size >= 0 {
+		err = tp.PrintfLine("Content-length: %v", size)
 		if err != nil {
 			return err
 		}
@@ -297,7 +192,7 @@ func (c *Client) write(
 	}
 
 	// Write to spamd.
-	if _, err := io.Copy(conn, io.MultiReader(buf, messageReader)); err != nil {
+	if _, err := io.Copy(conn, io.MultiReader(buf, message)); err != nil {
 		conn.Close() // nolint: errcheck
 		return fmt.Errorf("could not send to spamd: %v", err)
 	}

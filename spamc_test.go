@@ -23,58 +23,13 @@ func TestWrite(t *testing.T) {
 		want     string
 		wantErr  string
 	}{
-		{ // header value (ok) with utf-8
-			"CMD", strings.NewReader("Key: ☠Value\r\nMessage"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\nKey: ☠Value\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // header key (bad) with utf-8, will make it a body
-			"CMD", strings.NewReader("☠Key: Value\r\nMessage"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 26\r\n\r\n\r\n☠Key: Value\r\nMessage\r\n",
-			"",
-		},
-		{ // correct multiline header
-			"CMD", strings.NewReader("Key1: Value1A\r\n\tValue1B\r\nKey2: Value2A\r\n\r\nMessage"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 51\r\n\r\nKey1: Value1A\r\n\tValue1B\r\nKey2: Value2A\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // bad multiline header
-			"CMD", strings.NewReader("Key1: Value1A\r\nValue1B\r\nKey2: Value2A\r\n\r\nMessage"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 52\r\n\r\nKey1: Value1A\r\n\r\nValue1B\r\nKey2: Value2A\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // bad start of headers
-			"CMD", strings.NewReader("\tValue1A\r\nKey2: Value2A\r\n\r\nMessage"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 38\r\n\r\n\r\n\tValue1A\r\nKey2: Value2A\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // test with wrong Content-length header in something we can read the size of
-			"CMD", strings.NewReader("Message"), Header{HeaderContentLength: []string{"15"}},
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // test user without default user set
-			"CMD", strings.NewReader("Message"), Header{HeaderUser: []string{"xx"}},
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\nUser: xx\r\n\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // test with correctly terminated message
-			"CMD", strings.NewReader("Message\r\n"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
-			"",
-		},
-		{ // test incorrectly terminated message
-			"CMD", strings.NewReader("Message"), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
-			"",
-		},
 		{ // testing bytes.NewReader
 			"CMD", bytes.NewReader([]byte("Message")), nil,
-			"CMD SPAMC/1.5\r\nContent-length: 11\r\n\r\n\r\nMessage\r\n",
+			"CMD SPAMC/1.5\r\nContent-length: 7\r\n\r\nMessage",
 			"",
 		},
 		{"", strings.NewReader("Message"), nil, "", "empty command"},
-		{"CMD", strings.NewReader(""), nil, "CMD SPAMC/1.5\r\nContent-length: 4\r\n\r\n\r\n\r\n", ""},
+		{"CMD", strings.NewReader(""), nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\n\r\n", ""},
 	}
 
 	for i, tc := range cases {
@@ -110,24 +65,23 @@ func TestWriteDefaultUser(t *testing.T) {
 		},
 		{
 			"CMD", "Message", nil,
-			"CMD SPAMC/1.5\r\nContent-length: 7\r\n\r\nMessage",
+			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: default\r\n\r\nMessage",
 			"",
 		},
 		{"", "Message", nil, "", "empty command"},
-		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\n\r\n", ""},
+		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\nUser: default\r\n\r\n", ""},
 	}
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			conn := fakeconn.New()
 			c := Client{conn: conn}
-			c.DefaultUser = "aa"
+			c.DefaultUser = "default"
 
 			err := c.write(conn, tc.inCmd, strings.NewReader(tc.inMsg), tc.inHeader)
 			out := conn.Written.String()
 			if out != tc.want {
-				t.Errorf("wrong data written\nout:  %#v\nwant: %#v\n",
-					out, tc.want)
+				t.Errorf("wrong data written\nout:  %#v\nwant: %#v\n", out, tc.want)
 			}
 			if !test.ErrorContains(err, tc.wantErr) {
 				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", out, tc.want)
