@@ -17,7 +17,7 @@ import (
 func TestWrite(t *testing.T) {
 	cases := []struct {
 		inCmd    string
-		inMsg    io.ReadSeeker
+		inMsg    io.Reader
 		inHeader Header
 		want     string
 		wantErr  string

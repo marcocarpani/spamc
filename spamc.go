@@ -46,7 +46,7 @@ var testConnHook net.Conn
 func (c *Client) send(
 	ctx context.Context,
 	cmd string,
-	message io.ReadSeeker,
+	message io.Reader,
 	headers Header,
 ) (io.ReadCloser, error) {
 
@@ -72,7 +72,7 @@ func (c *Client) send(
 func (c *Client) write(
 	conn net.Conn,
 	cmd string,
-	message io.ReadSeeker,
+	message io.Reader,
 	headers Header,
 ) error {
 

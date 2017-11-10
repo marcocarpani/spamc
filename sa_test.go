@@ -21,7 +21,7 @@ func TestSACommands(t *testing.T) {
 
 	cases := []struct {
 		name string
-		fun  func(context.Context, io.ReadSeeker, Header) (*Response, error)
+		fun  func(context.Context, io.Reader, Header) (*Response, error)
 	}{
 		//{"Check", client.Check},
 		//{"Symbols", client.Symbols},
