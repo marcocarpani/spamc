@@ -84,7 +84,7 @@ func (c *Client) write(
 		headers = make(Header)
 	}
 	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
-		headers.Add(HeaderUser, c.DefaultUser)
+		headers[HeaderUser] = c.DefaultUser
 	}
 
 	buf := bytes.NewBufferString("")
@@ -96,7 +96,7 @@ func (c *Client) write(
 		if err != nil {
 			return fmt.Errorf("could not determine size of message: %v", err)
 		}
-		headers.Set(HeaderContentLength, fmt.Sprintf("%v", size))
+		headers[HeaderContentLength] = fmt.Sprintf("%v", size)
 	}
 
 	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
@@ -104,9 +104,9 @@ func (c *Client) write(
 		return err
 	}
 
-	// Write headers.
-	for k, vals := range headers {
-		for _, v := range vals {
+	// Write headers in deterministic order.
+	for _, k := range allHeaders {
+		if v, ok := headers[k]; ok {
 			err := tp.PrintfLine("%v: %v", k, v)
 			if err != nil {
 				return err
@@ -203,7 +203,10 @@ func readResponse(read io.Reader) (headers Header, body string, err error) {
 		return nil, "", fmt.Errorf("could not read headers: %v", err)
 	}
 
-	headers = Header(tpHeader)
+	headers = make(Header)
+	for k, v := range tpHeader {
+		headers[k] = v[0]
+	}
 
 	body, err = readBody(tp)
 	if err != nil {
@@ -294,16 +297,16 @@ loop:
 // example:
 //    Spam: yes ; 6.66 / 5.0
 func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
-	spam, ok := respHeaders["Spam"]
+	spam, ok := respHeaders[HeaderSpam]
 	if !ok || len(spam) == 0 {
 		return false, 0, 0, errors.New("header missing")
 	}
 
-	if len(spam[0]) == 0 {
+	if len(spam) == 0 {
 		return false, 0, 0, errors.New("header empty")
 	}
 
-	s := strings.Split(spam[0], ";")
+	s := strings.Split(spam, ";")
 	if len(s) != 2 {
 		return false, 0, 0, fmt.Errorf("unexpected data: %v", spam[0])
 	}

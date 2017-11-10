@@ -257,13 +257,13 @@ func (c *Client) Learn(
 	}
 	switch strings.ToUpper(learnType) {
 	case LearnSpam:
-		headers.Add(HeaderMessageClass, "spam")
-		headers.Add(HeaderSet, "local")
+		headers[HeaderMessageClass] = "spam"
+		headers[HeaderSet] = "local"
 	case LearnHam:
-		headers.Add(HeaderMessageClass, "ham")
-		headers.Add(HeaderSet, "local")
+		headers[HeaderMessageClass] = "ham"
+		headers[HeaderSet] = "local"
 	case LearnForget:
-		headers.Add(HeaderRemove, "local")
+		headers[HeaderRemove] = "local"
 	default:
 		return nil, fmt.Errorf("unknown learn type: %v", learnType)
 	}

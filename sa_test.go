@@ -17,7 +17,7 @@ var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
 // robust test in place.
 func TestSACommands(t *testing.T) {
 	client := New(addr, 0)
-	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
+	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
 
 	cases := []struct {
 		name string
@@ -33,9 +33,9 @@ func TestSACommands(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%v", tc.name), func(t *testing.T) {
-			r, err := tc.fun(context.Background(), message, nil)
+			r, err := tc.fun(context.Background(), strings.NewReader(message), nil)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("error: %v\nmessage: %#v", err, message)
 			}
 			if r == nil {
 				t.Fatal("r is nil")
@@ -56,8 +56,8 @@ func TestSATell(t *testing.T) {
 	client := New(addr, 0)
 	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 	r, err := client.Tell(context.Background(), message, Header{
-		"Message-class": []string{"spam"},
-		"Set":           []string{"local"},
+		"Message-class": "spam",
+		"Set":           "local",
 	})
 	if err != nil {
 		t.Fatal(err)

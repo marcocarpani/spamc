@@ -2,14 +2,13 @@ package spamc
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"net/textproto"
 	"reflect"
 	"strings"
 	"testing"
-
-	"bytes"
-	"io"
 
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
@@ -59,7 +58,7 @@ func TestWriteDefaultUser(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			"CMD", "Message", Header{HeaderUser: []string{"xx"}},
+			"CMD", "Message", Header{HeaderUser: "xx"},
 			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: xx\r\n\r\nMessage",
 			"",
 		},
@@ -101,7 +100,7 @@ func TestReadResponse(t *testing.T) {
 			in: "SPAMD/1.1 0 EX_OK\r\n" +
 				"Header: value\r\n\r\n" +
 				"THE BODY",
-			expectedHeader: Header{"Header": {"value"}},
+			expectedHeader: Header{"Header": "value"},
 			expectedBody:   "THE BODY\r\n",
 			expectedErr:    "",
 		},
@@ -167,51 +166,51 @@ func TestParseSpamHeader(t *testing.T) {
 	}{
 		// Invalid data
 		{Header{}, false, 0, 0, "header missing"},
-		{Header{"Spam": []string{""}}, false, 0, 0, "header empty"},
+		{Header{"Spam": ""}, false, 0, 0, "header missing"},
 		{
-			Header{"Spam": []string{"clearly incorrect"}},
+			Header{"Spam": "clearly incorrect"},
 			false, 0, 0, "unexpected data",
 		},
 		{
-			Header{"Spam": []string{"bacon ; 0 / 0"}},
+			Header{"Spam": "bacon ; 0 / 0"},
 			false, 0, 0, "unknown spam status",
 		},
 		{
-			Header{"Spam": []string{"no ; 0 "}},
+			Header{"Spam": "no ; 0 "},
 			false, 0, 0, "unexpected data",
 		},
 		{
-			Header{"Spam": []string{"no ; 0 / "}},
+			Header{"Spam": "no ; 0 / "},
 			false, 0, 0, "could not parse",
 		},
 		{
-			Header{"Spam": []string{"no ; 0 / asd"}},
+			Header{"Spam": "no ; 0 / asd"},
 			false, 0, 0, "could not parse",
 		},
 		{
-			Header{"Spam": []string{"no ; asd / 0"}},
+			Header{"Spam": "no ; asd / 0"},
 			false, 0, 0, "could not parse",
 		},
 
 		// Valid data
 		{
-			Header{"Spam": []string{"no ; 0.1 / 5.0"}},
+			Header{"Spam": "no ; 0.1 / 5.0"},
 			false, .1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"no;0.1 / 5.0"}},
+			Header{"Spam": "no;0.1 / 5.0"},
 			false, .1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"no;0.1/5.0"}},
+			Header{"Spam": "no;0.1/5.0"},
 			false, .1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"no;-0.1/5.0"}},
+			Header{"Spam": "no;-0.1/5.0"},
 			false, -.1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"TRUe ; 4 / 7.0"}},
+			Header{"Spam": "TRUe ; 4 / 7.0"},
 			true, 4.0, 7.0, "",
 		},
 	}
