@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/textproto"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -234,6 +236,45 @@ func TestParseSpamHeader(t *testing.T) {
 			if !test.ErrorContains(err, tc.wantErr) {
 				t.Errorf("error wrong\nout:  %#v\nwant: %#v\n",
 					err, tc.wantErr)
+			}
+		})
+	}
+}
+
+type tr struct{}
+
+func (t tr) Read([]byte) (int, error) { return 0, nil }
+
+func TestSizeFromReader(t *testing.T) {
+	err := ioutil.WriteFile("/tmp/xxx", []byte("xxx"), 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fp, err := os.Open("/tmp/xxx")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		in      io.Reader
+		want    int64
+		wantErr string
+	}{
+		{strings.NewReader("xx"), 2, ""},
+		{bytes.NewReader([]byte("xx")), 2, ""},
+		{fp, 3, ""},
+		{tr{}, 0, "unknown type: spamc.tr"},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			out, err := sizeFromReader(tc.in)
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong err\nout:  %#v\nwant: %#v\n", err, tc.wantErr)
+			}
+			if out != tc.want {
+				t.Errorf("\nout:  %#v\nwant: %#v\n", out, tc.want)
 			}
 		})
 	}

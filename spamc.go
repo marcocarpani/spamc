@@ -15,9 +15,27 @@ import (
 	"time"
 )
 
+// Header for requests.
+type Header map[string]string
+
 const clientProtocolVersion = "1.5"
 
-var serverProtocolVersions = []string{"1.0", "1.1"}
+// Header key constants.
+const (
+	HeaderContentLength = "Content-length"
+	HeaderMessageClass  = "Message-class"
+	HeaderRemove        = "Remove"
+	HeaderSet           = "Set"
+	HeaderSpam          = "Spam"
+	HeaderUser          = "User"
+)
+
+var (
+	serverProtocolVersions = []string{"1.0", "1.1"}
+
+	allHeaders = []string{HeaderContentLength, HeaderMessageClass, HeaderRemove,
+		HeaderSet, HeaderSpam, HeaderUser}
+)
 
 // mapping of the error codes to the error messages.
 var errorMessages = map[int]string{
