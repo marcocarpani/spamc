@@ -4,12 +4,12 @@
 [[projects]]
   branch = "master"
   name = "github.com/teamwork/test"
-  packages = ["."]
-  revision = "109d4a7e538bd68fe61aadbeac95ef36d59a72b1"
+  packages = [".","fakeconn"]
+  revision = "559f1f9ef83a9d1858c16909fabb14abb61154a9"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b4370876b56b7cdf44713af604cfc0f06e5e15e38e6c06a43fd9921f820fa3ae"
+  inputs-digest = "faa0b9768e52de02e9e3962d4b3031f81cfb5264e6e6643c6edf74e312d207b2"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
+	"github.com/teamwork/test/fakeconn"
 )
 
 func TestWrite(t *testing.T) {
