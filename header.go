@@ -1,14 +1,12 @@
 package spamc
 
-import "net/textproto"
-
 // Header key constants.
 const (
 	HeaderContentLength = "Content-length"
-	HeaderUser          = "User"
 	HeaderMessageClass  = "Message-class"
-	HeaderSet           = "Set"
 	HeaderRemove        = "Remove"
+	HeaderSet           = "Set"
+	HeaderUser          = "User"
 )
 
 // Header for requests.
@@ -17,7 +15,6 @@ type Header map[string][]string
 // Add adds the key, value pair to the header.
 // It appends to any existing values associated with key.
 func (h Header) Add(key, value string) {
-	key = textproto.CanonicalMIMEHeaderKey(key)
 	h[key] = append(h[key], value)
 }
 
@@ -25,7 +22,7 @@ func (h Header) Add(key, value string) {
 // the single element value. It replaces any existing
 // values associated with key.
 func (h Header) Set(key, value string) {
-	h[textproto.CanonicalMIMEHeaderKey(key)] = []string{value}
+	h[key] = []string{value}
 }
 
 // Get gets the first value associated with the given key.
@@ -38,7 +35,7 @@ func (h Header) Get(key string) string {
 	if h == nil {
 		return ""
 	}
-	v := h[textproto.CanonicalMIMEHeaderKey(key)]
+	v := h[key]
 	if len(v) == 0 {
 		return ""
 	}
@@ -47,5 +44,5 @@ func (h Header) Get(key string) string {
 
 // Del deletes the values associated with key.
 func (h Header) Del(key string) {
-	delete(h, textproto.CanonicalMIMEHeaderKey(key))
+	delete(h, key)
 }

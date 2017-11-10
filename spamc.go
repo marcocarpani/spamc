@@ -68,40 +68,6 @@ func (c *Client) send(
 	return conn, nil
 }
 
-// isASCII checks for non-ascii bytes
-func (c Client) isASCII(m []byte) bool {
-	for _, c := range m {
-		if c > 127 {
-			return false
-		}
-	}
-	return true
-}
-
-// isMessageTerminated will check to see if the message is \r\n terminated
-func (c Client) isMessageTerminated(message io.ReadSeeker) (bool, error) {
-	// make sure to seek back to the current position or
-	// we mess up the internal message pointer
-	current, _ := message.Seek(0, io.SeekCurrent)
-	defer message.Seek(current, io.SeekStart) // nolint: errcheck
-
-	_, err := message.Seek(-2, io.SeekEnd)
-
-	if err != nil {
-		return false, err
-	}
-	buf := make([]byte, 2)
-	_, err = message.Read(buf)
-	if err != nil {
-		return false, err
-	}
-	if bytes.Equal(buf, []byte("\r\n")) {
-		// and we are done, its terminated
-		return true, nil
-	}
-	return false, nil
-}
-
 // write the command to the connection.
 func (c *Client) write(
 	conn net.Conn,
@@ -122,54 +88,20 @@ func (c *Client) write(
 	}
 
 	buf := bytes.NewBufferString("")
-	w := bufio.NewWriter(buf)
-	tp := textproto.NewWriter(w)
+	tp := textproto.NewWriter(bufio.NewWriter(buf))
 
-	// Make sure to seek to start of message
-	if _, err := message.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-
-	size := int64(-1)
-	switch v := message.(type) {
-	case *strings.Reader:
-		size = v.Size()
-	case *bytes.Reader:
-		size = v.Size()
-	case *os.File:
-		stat, err := v.Stat()
+	// Attempt to get the size if it wasn't explicitly given.
+	if _, ok := headers[HeaderContentLength]; !ok {
+		size, err := sizeFromReader(message)
 		if err != nil {
-			return err
+			return fmt.Errorf("could not determine size of message: %v", err)
 		}
-		size = stat.Size()
-	}
-
-	// make sure to delete a present content-length (and use it if
-	// we could not set size above
-	if _, ok := headers[HeaderContentLength]; ok {
-		if size == -1 {
-			headerContentLength, err := strconv.ParseInt(headers.Get(HeaderContentLength), 10, 64)
-			if err != nil {
-				return err
-			}
-			size = headerContentLength
-		}
-		// delete the Content-length header from headers is set, prevents double sending, can not use
-		// headers.Delete here .. HeaderContentLength is not Canonical
-		delete(headers, HeaderContentLength)
+		headers.Set(HeaderContentLength, fmt.Sprintf("%v", size))
 	}
 
 	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
 	if err != nil {
 		return err
-	}
-
-	// Always add Content-length header.
-	if size >= 0 {
-		err = tp.PrintfLine("Content-length: %v", size)
-		if err != nil {
-			return err
-		}
 	}
 
 	// Write headers.
@@ -181,13 +113,11 @@ func (c *Client) write(
 			}
 		}
 	}
-	err = tp.PrintfLine("")
-	if err != nil {
+
+	if err := tp.PrintfLine(""); err != nil {
 		return err
 	}
-
-	err = tp.W.Flush()
-	if err != nil {
+	if err := tp.W.Flush(); err != nil {
 		return err
 	}
 
@@ -206,6 +136,24 @@ func (c *Client) write(
 	}
 
 	return nil
+}
+
+func sizeFromReader(r io.Reader) (int64, error) {
+	switch v := r.(type) {
+	case *strings.Reader:
+		return v.Size(), nil
+	case *bytes.Reader:
+		return v.Size(), nil
+	case *os.File:
+		stat, err := v.Stat()
+		if err != nil {
+			return 0, err
+		}
+		return stat.Size(), nil
+	default:
+		return 0, fmt.Errorf("unknown type: %T", v)
+	}
+
 }
 
 func (c *Client) dial(ctx context.Context) (net.Conn, error) {

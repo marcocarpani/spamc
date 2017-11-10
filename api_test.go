@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/teamwork/go-spamc/fakeconn"
 	"github.com/teamwork/test"
-	"strings"
 )
 
 func TestCheck(t *testing.T) {
