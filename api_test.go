@@ -242,7 +242,7 @@ func TestProcess(t *testing.T) {
 
 			b, err := ioutil.ReadAll(out.Message)
 			msg := string(b)
-			out.Message.Close()
+			_ = out.Message.Close()
 			out.Message = nil
 			if err != nil {
 				t.Fatal(err)
@@ -297,7 +297,7 @@ func TestHeaders(t *testing.T) {
 
 			b, err := ioutil.ReadAll(out.Message)
 			msg := string(b)
-			out.Message.Close()
+			_ = out.Message.Close()
 			out.Message = nil
 			if err != nil {
 				t.Fatal(err)
