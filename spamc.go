@@ -16,25 +16,18 @@ import (
 	"time"
 )
 
-// Header for requests.
-type Header map[string]string
-
 const clientProtocolVersion = "1.5"
 
-// Header key constants.
+// Command types.
 const (
-	HeaderContentLength = "Content-length"
-	HeaderDidRemove     = "Didremove"
-	HeaderDidSet        = "Didset"
-	HeaderMessageClass  = "Message-class"
-	HeaderRemove        = "Remove"
-	HeaderSet           = "Set"
-	HeaderSpam          = "Spam"
-	HeaderUser          = "User"
-	MessageClassSpam    = "spam"
-	MessageClassHam     = "ham"
-	TellLocal           = "local"
-	TellRemote          = "remote"
+	cmdCheck        = "CHECK"
+	cmdSymbols      = "SYMBOLS"
+	cmdReport       = "REPORT"
+	cmdReportIfspam = "REPORT_IFSPAM"
+	cmdPing         = "PING"
+	cmdTell         = "TELL"
+	cmdProcess      = "PROCESS"
+	cmdHeaders      = "HEADERS"
 )
 
 var (
