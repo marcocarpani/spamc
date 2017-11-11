@@ -4,7 +4,6 @@ package spamc
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -25,20 +24,8 @@ func TestSATell(t *testing.T) {
 	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 	r, err := client.Tell(context.Background(), message, Header{
 		"Message-class": "spam",
-		"Set":           "local",
+		"Set":           "remote",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-}
-
-func TestSALearn(t *testing.T) {
-	client := New(addr, 0)
-	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
-	r, err := client.Learn(context.Background(), LearnHam, message, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,5 +98,28 @@ func TestSAReport(t *testing.T) {
 		t.Fatal("r is nil")
 	}
 
-	fmt.Printf("%#v\n", r)
+	//fmt.Printf("%#v\n", r)
+}
+
+func TestSAProcess(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Process(context.Background(), strings.NewReader(""+
+		"Date: now\r\n"+
+		"From: a@example.com\r\n"+
+		"Subject: Hello\r\n"+
+		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
+		"\r\n\r\nthe body"+
+		""), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	// Added headers
+	//X-Spam-Checker-Version: SpamAssassin 3.4.1 (2015-04-28) on 6c9bb381daaf
+	//X-Spam-Level: *
+	//X-Spam-Status: No, score=1.6 required=5.0 tests=INVALID_DATE,MISSING_HEADERS,
+	//        NO_RECEIVED,NO_RELAYS autolearn=no autolearn_force=no version=3.4.1
 }

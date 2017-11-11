@@ -265,6 +265,8 @@ func TestParseReport(t *testing.T) {
 				pts rule name              description
 				---- ---------------------- --------------------------------------------------
 				 0.4 INVALID_DATE           Invalid Date: header (not RFC 2822)
+				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP
+				-1.2 MISSING_HEADERS        Missing To: header
 			`),
 			Report{
 				Intro: normalizeSpace(`
@@ -284,6 +286,16 @@ func TestParseReport(t *testing.T) {
 						Points:      0.4,
 						Rule:        "INVALID_DATE",
 						Description: "Invalid Date: header (not RFC 2822)",
+					},
+					{
+						Points:      0.0,
+						Rule:        "NO_RELAYS",
+						Description: "Informational: message was not relayed via SMTP",
+					},
+					{
+						Points:      -1.2,
+						Rule:        "MISSING_HEADERS",
+						Description: "Missing To: header",
 					},
 				},
 			},

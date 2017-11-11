@@ -3,6 +3,7 @@ package spamc
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,13 +24,6 @@ const (
 	CmdHeaders      = "HEADERS"
 )
 
-// Learn types.
-const (
-	LearnSpam   = "SPAM"
-	LearnHam    = "HAM"
-	LearnForget = "FORGET"
-)
-
 // Client is a connection to the spamd daemon.
 type Client struct {
 	// DefaultUser is the User to send if a command didn't specify one.
@@ -43,8 +37,8 @@ type Client struct {
 // Error is used for spamd responses; it contains the spamd exit code.
 type Error struct {
 	msg  string
-	Code int64
-	Line string
+	Code int64  // Code from spamd
+	Line string // Line of text from spamd, unaltered.
 }
 
 func (e Error) Error() string { return e.msg }
@@ -71,6 +65,18 @@ func NewWithDialer(host string, dialer net.Dialer) *Client {
 	}
 }
 
+// Ping returns a confirmation that spamd is alive.
+func (c *Client) Ping(ctx context.Context) error {
+	read, err := c.send(ctx, CmdPing, strings.NewReader(""), nil)
+	if err != nil {
+		return fmt.Errorf("error sending command to spamd: %v", err)
+	}
+	defer read.Close() // nolint: errcheck
+
+	tp := textproto.NewReader(bufio.NewReader(read))
+	return parseCodeLine(tp, true)
+}
+
 // CheckResponse is the response from the Check and Symbols commands.
 type CheckResponse struct {
 	// IsSpam reports if this message is considered spam.
@@ -85,18 +91,6 @@ type CheckResponse struct {
 
 	// Symbols that matches; only when the Symbols command is used.
 	Symbols []string
-}
-
-// Ping returns a confirmation that spamd is alive.
-func (c *Client) Ping(ctx context.Context) error {
-	read, err := c.send(ctx, CmdPing, strings.NewReader(""), nil)
-	if err != nil {
-		return fmt.Errorf("error sending command to spamd: %v", err)
-	}
-	defer read.Close() // nolint: errcheck
-
-	tp := textproto.NewReader(bufio.NewReader(read))
-	return parseCodeLine(tp, true)
 }
 
 // Check if the passed message is spam.
@@ -243,12 +237,31 @@ func (c *Client) report(
 	}, nil
 }
 
+// ProcessResponse is the response from the Process and Headers commands.
+type ProcessResponse struct {
+	// IsSpam reports if this message is considered spam.
+	IsSpam bool
+
+	// Score is the spam score of this message.
+	Score float64
+
+	// BaseScore is the "minimum spam score" configured on the server. This
+	// is usually 5.0.
+	BaseScore float64
+
+	// Symbols that matches; only when the Symbols command is used.
+	Symbols []string
+
+	// Message headers and body.
+	Message io.Reader
+}
+
 // Process this message and return a modified message.
 func (c *Client) Process(
 	ctx context.Context,
 	msg io.Reader,
 	headers Header,
-) (*CheckResponse, error) {
+) (*ProcessResponse, error) {
 
 	read, err := c.send(ctx, CmdProcess, msg, headers)
 	if err != nil {
@@ -256,7 +269,7 @@ func (c *Client) Process(
 	}
 	defer read.Close() // nolint: errcheck
 
-	respHeaders, _, err := readResponse(read)
+	respHeaders, tp, err := readResponse(read)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse spamd response: %v", err)
 	}
@@ -266,12 +279,11 @@ func (c *Client) Process(
 		return nil, fmt.Errorf("could not read Spam header: %v", err)
 	}
 
-	// TODO: Read body
-
-	return &CheckResponse{
+	return &ProcessResponse{
 		IsSpam:    isSpam,
 		Score:     score,
 		BaseScore: baseScore,
+		Message:   tp.R,
 	}, nil
 }
 
@@ -281,7 +293,7 @@ func (c *Client) Headers(
 	ctx context.Context,
 	msg io.Reader,
 	headers Header,
-) (*CheckResponse, error) {
+) (*ProcessResponse, error) {
 
 	read, err := c.send(ctx, CmdHeaders, msg, headers)
 	if err != nil {
@@ -289,7 +301,7 @@ func (c *Client) Headers(
 	}
 	defer read.Close() // nolint: errcheck
 
-	respHeaders, _, err := readResponse(read)
+	respHeaders, tp, err := readResponse(read)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse spamd response: %v", err)
 	}
@@ -299,17 +311,18 @@ func (c *Client) Headers(
 		return nil, fmt.Errorf("could not read Spam header: %v", err)
 	}
 
-	// TODO: Read body
-
-	return &CheckResponse{
+	return &ProcessResponse{
 		IsSpam:    isSpam,
 		Score:     score,
 		BaseScore: baseScore,
+		Message:   tp.R,
 	}, nil
 }
 
 // TellResponse is the response of a TELL command.
 type TellResponse struct {
+	DidSet    []string
+	DidRemove []string
 }
 
 // Tell what type of we are to process and what should be done with that
@@ -317,6 +330,23 @@ type TellResponse struct {
 //
 // This includes setting or removing a local or a remote database (learning,
 // reporting, forgetting, revoking).
+//
+// Message-class clasifies the message you're sending, and either the Set or
+// Remove header specifies which action you want to take.
+//
+// To learn a message as spam:
+//
+//     c.Tell(ctx, msg, Header{
+//         HeaderMessageClass: MessageClassSpam
+//         HeaderSet:          []string{TellLocal},
+//     })
+//
+// Or to learn a message as ham:
+//
+//     c.Tell(ctx, msg, Header{
+//         HeaderMessageClass: MessageClassHam,
+//         HeaderSet:          []string{TellLocal},
+//     })
 func (c *Client) Tell(
 	ctx context.Context,
 	msg io.Reader,
@@ -326,6 +356,10 @@ func (c *Client) Tell(
 	read, err := c.send(ctx, CmdTell, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
+		if serr, ok := err.(Error); ok && serr.Code == 69 {
+			return nil, errors.New(
+				"TELL commands are not enabled, set the --allow-tell switch")
+		}
 		return nil, err
 	}
 
@@ -334,54 +368,13 @@ func (c *Client) Tell(
 		return nil, fmt.Errorf("could not parse spamd response: %v", err)
 	}
 
-	fmt.Printf("%#v\n", respHeaders)
-
-	/*
-		if serr, ok := err.(Error); ok && serr.Code == 69 {
-			return nil, errors.New(
-				"TELL commands are not enabled, set the --allow-tell switch")
-		}
-	*/
-
-	/*
-		returnObj.Vars["didSet"] = false
-		returnObj.Vars["didRemove"] = false
-		if strings.Contains(string(line), "DidRemove") {
-			returnObj.Vars["didRemove"] = true
-		}
-		if strings.Contains(string(line), "DidSet") {
-			returnObj.Vars["didSet"] = true
-		}
-	*/
-
-	return &TellResponse{}, nil
-}
-
-// Learn if a message is spam. This is a more convenient wrapper around SA's
-// "TELL" command.
-//
-// Use one of the Learn* constants as the learnType.
-func (c *Client) Learn(
-	ctx context.Context,
-	learnType string,
-	msg io.Reader,
-	headers Header,
-) (*TellResponse, error) {
-
-	if headers == nil {
-		headers = make(Header)
+	r := &TellResponse{}
+	if h, ok := respHeaders[HeaderDidSet]; ok {
+		r.DidSet = strings.Split(h, ",")
 	}
-	switch strings.ToUpper(learnType) {
-	case LearnSpam:
-		headers[HeaderMessageClass] = "spam"
-		headers[HeaderSet] = "local"
-	case LearnHam:
-		headers[HeaderMessageClass] = "ham"
-		headers[HeaderSet] = "local"
-	case LearnForget:
-		headers[HeaderRemove] = "local"
-	default:
-		return nil, fmt.Errorf("unknown learn type: %v", learnType)
+	if h, ok := respHeaders[HeaderDidRemove]; ok {
+		r.DidRemove = strings.Split(h, ",")
 	}
-	return c.Tell(ctx, msg, headers)
+
+	return r, nil
 }

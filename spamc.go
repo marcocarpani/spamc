@@ -24,18 +24,24 @@ const clientProtocolVersion = "1.5"
 // Header key constants.
 const (
 	HeaderContentLength = "Content-length"
+	HeaderDidRemove     = "Didremove"
+	HeaderDidSet        = "Didset"
 	HeaderMessageClass  = "Message-class"
 	HeaderRemove        = "Remove"
 	HeaderSet           = "Set"
 	HeaderSpam          = "Spam"
 	HeaderUser          = "User"
+	MessageClassSpam    = "spam"
+	MessageClassHam     = "ham"
+	TellLocal           = "local"
+	TellRemote          = "remote"
 )
 
 var (
 	serverProtocolVersions = []string{"1.0", "1.1"}
 
-	allHeaders = []string{HeaderContentLength, HeaderMessageClass, HeaderRemove,
-		HeaderSet, HeaderSpam, HeaderUser}
+	allHeaders = []string{HeaderContentLength, HeaderDidRemove, HeaderDidSet,
+		HeaderMessageClass, HeaderRemove, HeaderSet, HeaderSpam, HeaderUser}
 )
 
 // mapping of the error codes to the error messages.
@@ -350,6 +356,38 @@ func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
 	return isSpam, score, baseScore, nil
 }
 
+// Report contains the results of a Report commands.
+type Report struct {
+	Intro string
+	Table []struct {
+		Points      float64
+		Rule        string
+		Description string
+	}
+}
+
+func (r Report) String() string {
+	table := "pts rule name              description\n"
+	table += "---- ---------------------- --------------------------------------------------\n"
+
+	for _, t := range r.Table {
+		leadingSpace := ""
+		if t.Points > 0 {
+			leadingSpace = " "
+		}
+
+		line := fmt.Sprintf("%v%.1f %v", leadingSpace, t.Points, t.Rule)
+		line += strings.Repeat(" ", 28-len(line)) + t.Description + "\n"
+		table += line
+	}
+
+	return r.Intro + "\n\n" + table
+}
+
+var reTableLine = regexp.MustCompile(`(-?[0-9.]+)\s+([A-Z0-9_]+)\s+(.+)`)
+
+// parse report output; example report:
+//
 // Spam detection software, running on the system "d311d8df23f8",
 // has NOT identified this incoming email as spam.  The original
 // message has been attached to this so you can view it or label
@@ -366,31 +404,6 @@ func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
 // -0.0 NO_RELAYS              Informational: message was not relayed via SMTP
 //  1.2 MISSING_HEADERS        Missing To: header
 // -0.0 NO_RECEIVED            Informational: message has no Received headers
-
-// Report asd
-type Report struct {
-	Intro string
-	Table []struct {
-		Points      float64
-		Rule        string
-		Description string
-	}
-}
-
-func (r Report) String() string {
-	table := "pts rule name              description\n"
-	table += "---- ---------------------- --------------------------------------------------\n"
-
-	for _, t := range r.Table {
-		//table += fmt.Sprintf("%v", t)
-		table += fmt.Sprintf(" %v %v           %v\n", t.Points, t.Rule, t.Description)
-	}
-
-	return r.Intro + "\n\n" + table
-}
-
-var reTableLine = regexp.MustCompile(`(-?[0-9.]+)\s+([A-Z0-9_]+)\s+(.+)`)
-
 func parseReport(tp *textproto.Reader) (Report, error) {
 	report := Report{}
 	table := false
@@ -412,7 +425,6 @@ func parseReport(tp *textproto.Reader) (Report, error) {
 			continue
 
 		case !table:
-			// TODO: Last line is the table header.
 			report.Intro += line + "\n"
 
 		case table:
@@ -441,6 +453,5 @@ func parseReport(tp *textproto.Reader) (Report, error) {
 	}
 
 	report.Intro = strings.TrimSpace(report.Intro)
-
 	return report, nil
 }
