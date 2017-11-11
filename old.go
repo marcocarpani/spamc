@@ -17,7 +17,8 @@ const (
 
 // wrapper to simple calls.
 func (c *Client) simpleCall(
-	cmd, msg string,
+	cmd string,
+	msg io.Reader,
 	headers Header,
 ) (*Response, error) {
 

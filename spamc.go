@@ -7,17 +7,35 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// Header for requests.
+type Header map[string]string
+
 const clientProtocolVersion = "1.5"
 
-var serverProtocolVersions = []string{"1.0", "1.1"}
+// Header key constants.
+const (
+	HeaderContentLength = "Content-length"
+	HeaderMessageClass  = "Message-class"
+	HeaderRemove        = "Remove"
+	HeaderSet           = "Set"
+	HeaderSpam          = "Spam"
+	HeaderUser          = "User"
+)
+
+var (
+	serverProtocolVersions = []string{"1.0", "1.1"}
+
+	allHeaders = []string{HeaderContentLength, HeaderMessageClass, HeaderRemove,
+		HeaderSet, HeaderSpam, HeaderUser}
+)
 
 // mapping of the error codes to the error messages.
 var errorMessages = map[int]string{
@@ -45,7 +63,8 @@ var testConnHook net.Conn
 // send a command to spamd.
 func (c *Client) send(
 	ctx context.Context,
-	cmd, message string,
+	cmd string,
+	message io.Reader,
 	headers Header,
 ) (io.ReadCloser, error) {
 
@@ -70,7 +89,8 @@ func (c *Client) send(
 // write the command to the connection.
 func (c *Client) write(
 	conn net.Conn,
-	cmd, message string,
+	cmd string,
+	message io.Reader,
 	headers Header,
 ) error {
 
@@ -82,51 +102,45 @@ func (c *Client) write(
 		headers = make(Header)
 	}
 	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
-		headers.Add(HeaderUser, c.DefaultUser)
+		headers[HeaderUser] = c.DefaultUser
 	}
 
 	buf := bytes.NewBufferString("")
-	w := bufio.NewWriter(buf)
-	tp := textproto.NewWriter(w)
+	tp := textproto.NewWriter(bufio.NewWriter(buf))
+
+	// Attempt to get the size if it wasn't explicitly given.
+	if _, ok := headers[HeaderContentLength]; !ok {
+		size, err := sizeFromReader(message)
+		if err != nil {
+			return fmt.Errorf("could not determine size of message: %v", err)
+		}
+		headers[HeaderContentLength] = fmt.Sprintf("%v", size)
+	}
 
 	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
 	if err != nil {
 		return err
 	}
 
-	// Always add Content-length header.
-	err = tp.PrintfLine("Content-length: %v", len(message))
-	if err != nil {
-		return err
-	}
-
-	// Write headers.
-	for k, vals := range headers {
-		for _, v := range vals {
+	// Write headers in deterministic order.
+	for _, k := range allHeaders {
+		if v, ok := headers[k]; ok {
 			err := tp.PrintfLine("%v: %v", k, v)
 			if err != nil {
 				return err
 			}
 		}
 	}
-	err = tp.PrintfLine("")
-	if err != nil {
-		return err
-	}
 
-	// Write body.
-	_, err = tp.W.WriteString(message)
-	if err != nil {
+	if err := tp.PrintfLine(""); err != nil {
 		return err
 	}
-	err = tp.W.Flush()
-	if err != nil {
+	if err := tp.W.Flush(); err != nil {
 		return err
 	}
 
 	// Write to spamd.
-	d, _ := ioutil.ReadAll(buf)
-	if _, err := conn.Write(d); err != nil {
+	if _, err := io.Copy(conn, io.MultiReader(buf, message)); err != nil {
 		conn.Close() // nolint: errcheck
 		return fmt.Errorf("could not send to spamd: %v", err)
 	}
@@ -140,6 +154,24 @@ func (c *Client) write(
 	}
 
 	return nil
+}
+
+func sizeFromReader(r io.Reader) (int64, error) {
+	switch v := r.(type) {
+	case *strings.Reader:
+		return v.Size(), nil
+	case *bytes.Reader:
+		return v.Size(), nil
+	case *os.File:
+		stat, err := v.Stat()
+		if err != nil {
+			return 0, err
+		}
+		return stat.Size(), nil
+	default:
+		return 0, fmt.Errorf("unknown type: %T", v)
+	}
+
 }
 
 func (c *Client) dial(ctx context.Context) (net.Conn, error) {
@@ -189,7 +221,10 @@ func readResponse(read io.Reader) (headers Header, body string, err error) {
 		return nil, "", fmt.Errorf("could not read headers: %v", err)
 	}
 
-	headers = Header(tpHeader)
+	headers = make(Header)
+	for k, v := range tpHeader {
+		headers[k] = v[0]
+	}
 
 	body, err = readBody(tp)
 	if err != nil {
@@ -280,16 +315,16 @@ loop:
 // example:
 //    Spam: yes ; 6.66 / 5.0
 func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
-	spam, ok := respHeaders["Spam"]
+	spam, ok := respHeaders[HeaderSpam]
 	if !ok || len(spam) == 0 {
 		return false, 0, 0, errors.New("header missing")
 	}
 
-	if len(spam[0]) == 0 {
+	if len(spam) == 0 {
 		return false, 0, 0, errors.New("header empty")
 	}
 
-	s := strings.Split(spam[0], ";")
+	s := strings.Split(spam, ";")
 	if len(s) != 2 {
 		return false, 0, 0, fmt.Errorf("unexpected data: %v", spam[0])
 	}
