@@ -80,7 +80,7 @@ _parse_options() {
 		esac
 	done
 
-	[ -n "$test_tags" ] && test_tags="-tags=${test_tags# }"
+	[ -n "$test_tags" ] && test_tags="${test_tags# }"
 	return 0
 }
 
