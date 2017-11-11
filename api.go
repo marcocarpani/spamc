@@ -163,11 +163,17 @@ func (c *Client) Symbols(
 		return nil, fmt.Errorf("could not read body: %v", err)
 	}
 
+	s := strings.Split(strings.TrimSpace(body), ",")
+	// Special case when symbols list is empty.
+	if len(s) == 1 && s[0] == "" {
+		s = *new([]string)
+	}
+
 	return &CheckResponse{
 		IsSpam:    isSpam,
 		Score:     score,
 		BaseScore: baseScore,
-		Symbols:   strings.Split(strings.TrimSpace(body), ","),
+		Symbols:   s,
 	}, nil
 }
 
@@ -259,10 +265,25 @@ type ProcessResponse struct {
 	Symbols []string
 
 	// Message headers and body.
-	Message io.Reader
+	Message io.ReadCloser
+}
+
+type rc struct {
+	read io.ReadCloser
+	buff *bufio.Reader
+}
+
+func (r rc) Read(p []byte) (n int, err error) {
+	return r.buff.Read(p)
+}
+
+func (r rc) Close() error {
+	return r.read.Close()
 }
 
 // Process this message and return a modified message.
+//
+// Do not forget to close the Message reader!
 func (c *Client) Process(
 	ctx context.Context,
 	msg io.Reader,
@@ -273,7 +294,6 @@ func (c *Client) Process(
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
-	defer read.Close() // nolint: errcheck
 
 	respHeaders, tp, err := readResponse(read)
 	if err != nil {
@@ -289,12 +309,14 @@ func (c *Client) Process(
 		IsSpam:    isSpam,
 		Score:     score,
 		BaseScore: baseScore,
-		Message:   tp.R,
+		Message:   rc{read: read, buff: tp.R},
 	}, nil
 }
 
 // Headers is the same as Process() but returns only modified headers and not
 // the body.
+//
+// Do not forget to close the Message reader!
 func (c *Client) Headers(
 	ctx context.Context,
 	msg io.Reader,
@@ -305,7 +327,6 @@ func (c *Client) Headers(
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
-	defer read.Close() // nolint: errcheck
 
 	respHeaders, tp, err := readResponse(read)
 	if err != nil {
@@ -321,7 +342,7 @@ func (c *Client) Headers(
 		IsSpam:    isSpam,
 		Score:     score,
 		BaseScore: baseScore,
-		Message:   tp.R,
+		Message:   rc{read: read, buff: tp.R},
 	}, nil
 }
 

@@ -262,7 +262,7 @@ func TestParseReport(t *testing.T) {
 
 				Content analysis details:   (1.6 points, 5.0 required)
 
-				pts rule name              description
+				 pts rule name              description
 				---- ---------------------- --------------------------------------------------
 				 0.4 INVALID_DATE           Invalid Date: header (not RFC 2822)
 				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP

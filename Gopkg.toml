@@ -24,3 +24,7 @@
 [[constraint]]
   branch = "master"
   name = "github.com/teamwork/test"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/teamwork/utils"

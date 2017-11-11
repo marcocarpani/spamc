@@ -363,7 +363,7 @@ type Report struct {
 }
 
 func (r Report) String() string {
-	table := "pts rule name              description\n"
+	table := " pts rule name              description\n"
 	table += "---- ---------------------- --------------------------------------------------\n"
 
 	for _, t := range r.Table {
@@ -414,7 +414,7 @@ func parseReport(tp *textproto.Reader) (Report, error) {
 		}
 
 		switch {
-		case !table && strings.HasPrefix(line, "pts rule name"):
+		case !table && strings.HasPrefix(line, " pts rule name"):
 			table = true
 
 		case table && strings.HasPrefix(line, "---- -"):
