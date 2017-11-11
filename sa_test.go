@@ -146,10 +146,9 @@ func TestSAHeaders(t *testing.T) {
 func TestSATell(t *testing.T) {
 	client := New(addr, 0)
 	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
-	r, err := client.Tell(context.Background(), message, Header{
-		HeaderMessageClass: MessageClassSpam,
-		HeaderSet:          TellRemote,
-	})
+	r, err := client.Tell(context.Background(), message, Header{}.
+		Set("Message-class", "spam").
+		Set("set", "remote"))
 	if err != nil {
 		t.Fatal(err)
 	}

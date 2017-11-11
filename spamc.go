@@ -16,33 +16,23 @@ import (
 	"time"
 )
 
-// Header for requests.
-type Header map[string]string
-
+// Protocol version we talk.
 const clientProtocolVersion = "1.5"
 
-// Header key constants.
+// Command types.
 const (
-	HeaderContentLength = "Content-length"
-	HeaderDidRemove     = "Didremove"
-	HeaderDidSet        = "Didset"
-	HeaderMessageClass  = "Message-class"
-	HeaderRemove        = "Remove"
-	HeaderSet           = "Set"
-	HeaderSpam          = "Spam"
-	HeaderUser          = "User"
-	MessageClassSpam    = "spam"
-	MessageClassHam     = "ham"
-	TellLocal           = "local"
-	TellRemote          = "remote"
+	cmdCheck        = "CHECK"
+	cmdSymbols      = "SYMBOLS"
+	cmdReport       = "REPORT"
+	cmdReportIfspam = "REPORT_IFSPAM"
+	cmdPing         = "PING"
+	cmdTell         = "TELL"
+	cmdProcess      = "PROCESS"
+	cmdHeaders      = "HEADERS"
 )
 
-var (
-	serverProtocolVersions = []string{"1.0", "1.1"}
-
-	allHeaders = []string{HeaderContentLength, HeaderDidRemove, HeaderDidSet,
-		HeaderMessageClass, HeaderRemove, HeaderSet, HeaderSpam, HeaderUser}
-)
+// Server protocol version we understand.
+var serverProtocolVersions = []string{"1.0", "1.1"}
 
 // mapping of the error codes to the error messages.
 var errorMessages = map[int]string{
@@ -102,20 +92,20 @@ func (c *Client) write(
 	if headers == nil {
 		headers = make(Header)
 	}
-	if _, ok := headers[HeaderUser]; !ok && c.DefaultUser != "" {
-		headers[HeaderUser] = c.DefaultUser
+	if _, ok := headers.Get("User"); !ok && c.DefaultUser != "" {
+		headers.Set("User", c.DefaultUser)
 	}
 
 	buf := bytes.NewBufferString("")
 	tp := textproto.NewWriter(bufio.NewWriter(buf))
 
 	// Attempt to get the size if it wasn't explicitly given.
-	if _, ok := headers[HeaderContentLength]; !ok {
+	if _, ok := headers.Get("Content-Length"); !ok {
 		size, err := sizeFromReader(message)
 		if err != nil {
 			return fmt.Errorf("could not determine size of message: %v", err)
 		}
-		headers[HeaderContentLength] = fmt.Sprintf("%v", size)
+		headers.Set("Content-length", fmt.Sprintf("%v", size))
 	}
 
 	err := tp.PrintfLine("%v SPAMC/%v", cmd, clientProtocolVersion)
@@ -123,13 +113,9 @@ func (c *Client) write(
 		return err
 	}
 
-	// Write headers in deterministic order.
-	for _, k := range allHeaders {
-		if v, ok := headers[k]; ok {
-			err := tp.PrintfLine("%v: %v", k, v)
-			if err != nil {
-				return err
-			}
+	for _, v := range headers.Iterate() {
+		if err := tp.PrintfLine("%v: %v", v[0], v[1]); err != nil {
+			return err
 		}
 	}
 
@@ -225,7 +211,7 @@ func readResponse(read io.Reader) (Header, *textproto.Reader, error) {
 
 	headers := make(Header)
 	for k, v := range tpHeader {
-		headers[k] = v[0]
+		headers.Set(k, v[0])
 	}
 
 	return headers, tp, nil
@@ -312,7 +298,7 @@ loop:
 // example:
 //    Spam: yes ; 6.66 / 5.0
 func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
-	spam, ok := respHeaders[HeaderSpam]
+	spam, ok := respHeaders.Get("Spam")
 	if !ok || len(spam) == 0 {
 		return false, 0, 0, errors.New("header missing")
 	}

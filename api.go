@@ -8,20 +8,9 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"sort"
 	"strings"
 	"time"
-)
-
-// Command types.
-const (
-	CmdCheck        = "CHECK"
-	CmdSymbols      = "SYMBOLS"
-	CmdReport       = "REPORT"
-	CmdReportIfspam = "REPORT_IFSPAM"
-	CmdPing         = "PING"
-	CmdTell         = "TELL"
-	CmdProcess      = "PROCESS"
-	CmdHeaders      = "HEADERS"
 )
 
 // Client is a connection to the spamd daemon.
@@ -46,6 +35,67 @@ func (e Error) Error() string { return e.msg }
 // Dialer to connect to spamd; usually a net.Dialer instance.
 type Dialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+// Header for requests.
+type Header map[string]string
+
+// Set a header. This will normalize the key casing, which is important because
+// SpamAssassin may ignore the header otherwise.
+func (h Header) Set(k, v string) Header {
+	k = h.normalizeKey(k)
+
+	switch k {
+	case "Message-class":
+		v := strings.ToLower(v)
+		if v != "" && v != "spam" && v != "ham" {
+			panic(fmt.Sprintf("unknown value for %v header: %v", k, v))
+		}
+	case "Set", "Remove":
+		v := strings.Split(strings.ToLower(v), ",")
+		for _, x := range v {
+			if x != "" && x != "local" && x != "remote" {
+				panic(fmt.Sprintf("unknown value for %v header: %v", k, x))
+			}
+		}
+	}
+	h[k] = v
+	return h
+}
+
+// Get a header.
+func (h Header) Get(k string) (string, bool) {
+	v, ok := h[h.normalizeKey(k)]
+	return v, ok
+}
+
+// Iterate over the map in alphabetical order.
+func (h Header) Iterate() [][]string {
+	r := make([][]string, len(h))
+	i := 0
+	for k, v := range h {
+		r[i] = []string{k, v}
+		i++
+	}
+	sort.Slice(r, func(i, j int) bool { return r[i][0] < r[j][0] })
+	return r
+}
+
+// Normalize the header casing.
+func (h Header) normalizeKey(k string) string {
+	if len(k) == 0 {
+		return ""
+	}
+
+	k = strings.ToLower(k)
+	switch k {
+	case "didremove", "did-remove":
+		return "DidRemove"
+	case "didset", "did-set":
+		return "DidSet"
+	default:
+		return strings.ToUpper(string(k[0])) + k[1:]
+	}
 }
 
 // New instance of Client.
@@ -73,7 +123,7 @@ func NewWithDialer(host string, dialer Dialer) *Client {
 
 // Ping returns a confirmation that spamd is alive.
 func (c *Client) Ping(ctx context.Context) error {
-	read, err := c.send(ctx, CmdPing, strings.NewReader(""), nil)
+	read, err := c.send(ctx, cmdPing, strings.NewReader(""), nil)
 	if err != nil {
 		return fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -106,7 +156,7 @@ func (c *Client) Check(
 	headers Header,
 ) (*CheckResponse, error) {
 
-	read, err := c.send(ctx, CmdCheck, msg, headers)
+	read, err := c.send(ctx, cmdCheck, msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -142,7 +192,7 @@ func (c *Client) Symbols(
 	// Spam: False ; 1.6 / 5.0
 	//
 	// INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS
-	read, err := c.send(ctx, CmdSymbols, msg, headers)
+	read, err := c.send(ctx, cmdSymbols, msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -199,7 +249,7 @@ func (c *Client) Report(
 	msg io.Reader,
 	headers Header,
 ) (*ReportResponse, error) {
-	return c.report(ctx, CmdReport, msg, headers)
+	return c.report(ctx, cmdReport, msg, headers)
 }
 
 // ReportIfSpam gives a detailed textual report for the message if it is
@@ -209,7 +259,7 @@ func (c *Client) ReportIfSpam(
 	msg io.Reader,
 	headers Header,
 ) (*ReportResponse, error) {
-	return c.report(ctx, CmdReportIfspam, msg, headers)
+	return c.report(ctx, cmdReportIfspam, msg, headers)
 }
 
 // Implement Report and ReportIfSpam
@@ -290,7 +340,7 @@ func (c *Client) Process(
 	headers Header,
 ) (*ProcessResponse, error) {
 
-	read, err := c.send(ctx, CmdProcess, msg, headers)
+	read, err := c.send(ctx, cmdProcess, msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -323,7 +373,7 @@ func (c *Client) Headers(
 	headers Header,
 ) (*ProcessResponse, error) {
 
-	read, err := c.send(ctx, CmdHeaders, msg, headers)
+	read, err := c.send(ctx, cmdHeaders, msg, headers)
 	if err != nil {
 		return nil, fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -380,7 +430,7 @@ func (c *Client) Tell(
 	headers Header,
 ) (*TellResponse, error) {
 
-	read, err := c.send(ctx, CmdTell, msg, headers)
+	read, err := c.send(ctx, cmdTell, msg, headers)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		if serr, ok := err.(Error); ok && serr.Code == 69 {
@@ -396,10 +446,11 @@ func (c *Client) Tell(
 	}
 
 	r := &TellResponse{}
-	if h, ok := respHeaders[HeaderDidSet]; ok {
+	fmt.Printf("%#v\n", respHeaders)
+	if h, ok := respHeaders.Get("DidSet"); ok {
 		r.DidSet = strings.Split(h, ",")
 	}
-	if h, ok := respHeaders[HeaderDidRemove]; ok {
+	if h, ok := respHeaders.Get("DidRemove"); ok {
 		r.DidRemove = strings.Split(h, ",")
 	}
 

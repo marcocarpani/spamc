@@ -361,3 +361,49 @@ func newClient(resp string) *Client {
 	d.conn.ReadFrom.WriteString(resp)
 	return NewWithDialer("", d)
 }
+
+func TestHeader(t *testing.T) {
+	t.Run("set", func(t *testing.T) {
+		h := Header{}.Set("xxx", "asD").Set("awe-CV", "zxc")
+		it := h.Iterate()
+		want := [][]string{{"Awe-cv", "zxc"}, {"Xxx", "asD"}}
+		if !reflect.DeepEqual(it, want) {
+			t.Errorf("\nout:  %#v\nwant: %#v\n", it, want)
+		}
+		if h.normalizeKey("") != "" {
+			t.Error("normalizeKey with empty string")
+		}
+	})
+
+	t.Run("message-class", func(t *testing.T) {
+		Header{}.Set("message-class", "spam")
+		Header{}.Set("message-class", "ham")
+		Header{}.Set("message-class", "")
+		Header{}.Set("set", "local")
+		Header{}.Set("set", "local,remote")
+		Header{}.Set("set", "")
+	})
+
+	t.Run("panic", func(t *testing.T) {
+		func() {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Error("did not panic")
+				}
+			}()
+			Header{}.Set("message-class", "hello")
+		}()
+
+		func() {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Error("did not panic")
+				}
+			}()
+
+			Header{}.Set("set", "hello")
+		}()
+	})
+}
