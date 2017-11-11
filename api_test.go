@@ -3,6 +3,7 @@ package spamc
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +11,14 @@ import (
 	"github.com/teamwork/test"
 	"github.com/teamwork/test/fakeconn"
 )
+
+type testDialer struct {
+	conn fakeconn.Conn
+}
+
+func (d *testDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return d.conn, nil
+}
 
 func TestPing(t *testing.T) {
 	cases := []struct {
@@ -22,11 +31,9 @@ func TestPing(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			conn := fakeconn.New()
-			conn.ReadFrom.WriteString(tc.in)
-			c := Client{conn: conn}
-			testConnHook = conn
-			defer func() { testConnHook = nil }()
+			d := &testDialer{conn: fakeconn.New()}
+			d.conn.ReadFrom.WriteString(tc.in)
+			c := NewWithDialer("", d)
 
 			err := c.Ping(context.Background())
 			if !test.ErrorContains(err, tc.wantErr) {
@@ -64,11 +71,9 @@ func TestCheck(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			conn := fakeconn.New()
-			conn.ReadFrom.WriteString(tc.in)
-			c := Client{conn: conn}
-			testConnHook = conn
-			defer func() { testConnHook = nil }()
+			d := &testDialer{conn: fakeconn.New()}
+			d.conn.ReadFrom.WriteString(tc.in)
+			c := NewWithDialer("", d)
 
 			out, err := c.Check(context.Background(), strings.NewReader("A message"), nil)
 			if !test.ErrorContains(err, tc.wantErr) {
@@ -105,11 +110,9 @@ func TestSymbols(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			conn := fakeconn.New()
-			conn.ReadFrom.WriteString(tc.in)
-			c := Client{conn: conn}
-			testConnHook = conn
-			defer func() { testConnHook = nil }()
+			d := &testDialer{conn: fakeconn.New()}
+			d.conn.ReadFrom.WriteString(tc.in)
+			c := NewWithDialer("", d)
 
 			out, err := c.Symbols(context.Background(), strings.NewReader("A message"), nil)
 			if !test.ErrorContains(err, tc.wantErr) {
@@ -147,11 +150,9 @@ func TestReport(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			conn := fakeconn.New()
-			conn.ReadFrom.WriteString(tc.in)
-			c := Client{conn: conn}
-			testConnHook = conn
-			defer func() { testConnHook = nil }()
+			d := &testDialer{conn: fakeconn.New()}
+			d.conn.ReadFrom.WriteString(tc.in)
+			c := NewWithDialer("", d)
 
 			out, err := c.Report(context.Background(), strings.NewReader("A message"), nil)
 			if !test.ErrorContains(err, tc.wantErr) {

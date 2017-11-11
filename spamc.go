@@ -75,15 +75,9 @@ func (c *Client) send(
 	headers Header,
 ) (io.ReadCloser, error) {
 
-	var conn net.Conn
-	if testConnHook != nil {
-		conn = testConnHook
-	} else {
-		var err error
-		conn, err = c.dial(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
-		}
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
 	}
 
 	if err := c.write(conn, cmd, message, headers); err != nil {
@@ -191,10 +185,12 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	}
 
 	// Set connection timeout
-	err = conn.SetDeadline(time.Now().Add(c.dialer.Timeout))
-	if err != nil {
-		conn.Close() // nolint: errcheck
-		return nil, fmt.Errorf("connection to spamd timed out: %v", err)
+	if ndial, ok := c.dialer.(*net.Dialer); ok {
+		err = conn.SetDeadline(time.Now().Add(ndial.Timeout))
+		if err != nil {
+			conn.Close() // nolint: errcheck
+			return nil, fmt.Errorf("connection to spamd timed out: %v", err)
+		}
 	}
 
 	return conn, nil

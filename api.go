@@ -30,7 +30,7 @@ type Client struct {
 	DefaultUser string
 
 	host   string
-	dialer net.Dialer
+	dialer Dialer
 	conn   net.Conn
 }
 
@@ -43,6 +43,11 @@ type Error struct {
 
 func (e Error) Error() string { return e.msg }
 
+// Dialer to connect to spamd; usually a net.Dialer instance.
+type Dialer interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
 // New instance of Client.
 func New(host string, timeout time.Duration) *Client {
 	if timeout == 0 {
@@ -51,14 +56,15 @@ func New(host string, timeout time.Duration) *Client {
 
 	return &Client{
 		host: host,
-		dialer: net.Dialer{
+		dialer: &net.Dialer{
 			Timeout: timeout,
 		},
 	}
 }
 
-// NewWithDialer creates a new instance of Client.
-func NewWithDialer(host string, dialer net.Dialer) *Client {
+// NewWithDialer creates a new instance of Client which connects to spamd with
+// the given dialer.
+func NewWithDialer(host string, dialer Dialer) *Client {
 	return &Client{
 		host:   host,
 		dialer: dialer,
