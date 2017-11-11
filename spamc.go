@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/textproto"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,18 +24,24 @@ const clientProtocolVersion = "1.5"
 // Header key constants.
 const (
 	HeaderContentLength = "Content-length"
+	HeaderDidRemove     = "Didremove"
+	HeaderDidSet        = "Didset"
 	HeaderMessageClass  = "Message-class"
 	HeaderRemove        = "Remove"
 	HeaderSet           = "Set"
 	HeaderSpam          = "Spam"
 	HeaderUser          = "User"
+	MessageClassSpam    = "spam"
+	MessageClassHam     = "ham"
+	TellLocal           = "local"
+	TellRemote          = "remote"
 )
 
 var (
 	serverProtocolVersions = []string{"1.0", "1.1"}
 
-	allHeaders = []string{HeaderContentLength, HeaderMessageClass, HeaderRemove,
-		HeaderSet, HeaderSpam, HeaderUser}
+	allHeaders = []string{HeaderContentLength, HeaderDidRemove, HeaderDidSet,
+		HeaderMessageClass, HeaderRemove, HeaderSet, HeaderSpam, HeaderUser}
 )
 
 // mapping of the error codes to the error messages.
@@ -68,15 +75,9 @@ func (c *Client) send(
 	headers Header,
 ) (io.ReadCloser, error) {
 
-	var conn net.Conn
-	if testConnHook != nil {
-		conn = testConnHook
-	} else {
-		var err error
-		conn, err = c.dial(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
-		}
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
 	}
 
 	if err := c.write(conn, cmd, message, headers); err != nil {
@@ -184,10 +185,12 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	}
 
 	// Set connection timeout
-	err = conn.SetDeadline(time.Now().Add(c.dialer.Timeout))
-	if err != nil {
-		conn.Close() // nolint: errcheck
-		return nil, fmt.Errorf("connection to spamd timed out: %v", err)
+	if ndial, ok := c.dialer.(*net.Dialer); ok {
+		err = conn.SetDeadline(time.Now().Add(ndial.Timeout))
+		if err != nil {
+			conn.Close() // nolint: errcheck
+			return nil, fmt.Errorf("connection to spamd timed out: %v", err)
+		}
 	}
 
 	return conn, nil
@@ -206,32 +209,26 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 // various commands.
 //
 // A non-0 (or EX_OK) status code is considered an error.
-func readResponse(read io.Reader) (headers Header, body string, err error) {
-	data := bufio.NewReader(read)
-	tp := textproto.NewReader(data)
+func readResponse(read io.Reader) (Header, *textproto.Reader, error) {
+	tp := textproto.NewReader(bufio.NewReader(read))
 
 	// We can't use textproto's ReadCodeLine() here, as SA's response is not
 	// quite compatible.
 	if err := parseCodeLine(tp, false); err != nil {
-		return nil, "", err
+		return nil, tp, err
 	}
 
 	tpHeader, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, "", fmt.Errorf("could not read headers: %v", err)
+		return nil, tp, fmt.Errorf("could not read headers: %v", err)
 	}
 
-	headers = make(Header)
+	headers := make(Header)
 	for k, v := range tpHeader {
 		headers[k] = v[0]
 	}
 
-	body, err = readBody(tp)
-	if err != nil {
-		return nil, "", fmt.Errorf("could not read body: %v", err)
-	}
-
-	return headers, body, nil
+	return headers, tp, nil
 }
 
 func parseCodeLine(tp *textproto.Reader, isPing bool) error {
@@ -353,4 +350,104 @@ func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
 	}
 
 	return isSpam, score, baseScore, nil
+}
+
+// Report contains the results of a Report commands.
+type Report struct {
+	Intro string
+	Table []struct {
+		Points      float64
+		Rule        string
+		Description string
+	}
+}
+
+func (r Report) String() string {
+	table := " pts rule name              description\n"
+	table += "---- ---------------------- --------------------------------------------------\n"
+
+	for _, t := range r.Table {
+		leadingSpace := ""
+		if t.Points > 0 {
+			leadingSpace = " "
+		}
+
+		line := fmt.Sprintf("%v%.1f %v", leadingSpace, t.Points, t.Rule)
+		line += strings.Repeat(" ", 28-len(line)) + t.Description + "\n"
+		table += line
+	}
+
+	return r.Intro + "\n\n" + table
+}
+
+var reTableLine = regexp.MustCompile(`(-?[0-9.]+)\s+([A-Z0-9_]+)\s+(.+)`)
+
+// parse report output; example report:
+//
+// Spam detection software, running on the system "d311d8df23f8",
+// has NOT identified this incoming email as spam.  The original
+// message has been attached to this so you can view it or label
+// similar future email.  If you have any questions, see
+// the administrator of that system for details.
+//
+// Content preview:  the body [...]
+//
+// Content analysis details:   (1.6 points, 5.0 required)
+//
+//  pts rule name              description
+// ---- ---------------------- --------------------------------------------------
+//  0.4 INVALID_DATE           Invalid Date: header (not RFC 2822)
+// -0.0 NO_RELAYS              Informational: message was not relayed via SMTP
+//  1.2 MISSING_HEADERS        Missing To: header
+// -0.0 NO_RECEIVED            Informational: message has no Received headers
+func parseReport(tp *textproto.Reader) (Report, error) {
+	report := Report{}
+	table := false
+
+	for {
+		line, err := tp.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return report, err
+		}
+
+		switch {
+		case !table && strings.HasPrefix(line, " pts rule name"):
+			table = true
+
+		case table && strings.HasPrefix(line, "---- -"):
+			continue
+
+		case !table:
+			report.Intro += line + "\n"
+
+		case table:
+			s := reTableLine.FindAllStringSubmatch(line, -1)
+			if len(s) != 1 {
+				continue
+			}
+
+			if len(s[0]) != 4 {
+				continue
+			}
+
+			points, err := strconv.ParseFloat(s[0][1], 64)
+			if err != nil {
+				continue
+			}
+
+			report.Table = append(report.Table, struct {
+				Points      float64
+				Rule        string
+				Description string
+			}{
+				points, s[0][2], s[0][3],
+			})
+		}
+	}
+
+	report.Intro = strings.TrimSpace(report.Intro)
+	return report, nil
 }

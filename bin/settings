@@ -18,7 +18,7 @@ _setup_docker() {
 	id=$(docker inspect spamc-test --format '{{.Id}}')
 	export SPAMC_SA_ADDRESS=$(docker network inspect bridge \
 		--format "{{(index .Containers \"$id\").IPv4Address}}" |
-		cut -d/ -f1)
+		cut -d/ -f1):783
 }
 
 pre_test_func=_setup_docker

@@ -2,14 +2,26 @@
 
 
 [[projects]]
+  name = "github.com/davecgh/go-spew"
+  packages = ["spew"]
+  revision = "346938d642f2ec3594ed81d874461961cd0faa76"
+  version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/pmezard/go-difflib"
+  packages = ["difflib"]
+  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
+  version = "v1.0.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/teamwork/test"
-  packages = [".","fakeconn"]
+  packages = [".","diff","fakeconn"]
   revision = "559f1f9ef83a9d1858c16909fabb14abb61154a9"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "faa0b9768e52de02e9e3962d4b3031f81cfb5264e6e6643c6edf74e312d207b2"
+  inputs-digest = "f02aff8ca7b8b5e6dcebfe1ff216b1c8dd8ac4a7edfa6d5108ddbcc38cf9d555"
   solver-name = "gps-cdcl"
   solver-version = 1

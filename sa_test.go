@@ -4,98 +4,19 @@ package spamc
 
 import (
 	"context"
-	"fmt"
-	"io"
+	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
 )
 
-var addr = os.Getenv("SPAMC_SA_ADDRESS") + ":783"
-
-// Basic test to confirm that the commands return *something* until we have more
-// robust test in place.
-func TestSACommands(t *testing.T) {
-	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
-
-	cases := []struct {
-		name string
-		fun  func(context.Context, io.Reader, Header) (*Response, error)
-	}{
-		//{"Check", client.Check},
-		//{"Symbols", client.Symbols},
-		{"Report", client.Report},
-		{"ReportIfSpam", client.ReportIfSpam},
-		{"Process", client.Process},
-		{"Header", client.Headers},
-	}
-
-	for _, tc := range cases {
-		t.Run(fmt.Sprintf("%v", tc.name), func(t *testing.T) {
-			r, err := tc.fun(context.Background(), strings.NewReader(message), nil)
-			if err != nil {
-				t.Fatalf("error: %v\nmessage: %#v", err, message)
-			}
-			if r == nil {
-				t.Fatal("r is nil")
-			}
-		})
-	}
-}
+var addr = os.Getenv("SPAMC_SA_ADDRESS")
 
 func TestSAPing(t *testing.T) {
 	client := New(addr, 0)
 	err := client.Ping(context.Background())
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestSATell(t *testing.T) {
-	client := New(addr, 0)
-	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
-	r, err := client.Tell(context.Background(), message, Header{
-		"Message-class": "spam",
-		"Set":           "local",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-}
-
-func TestSALearn(t *testing.T) {
-	client := New(addr, 0)
-	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
-	r, err := client.Learn(context.Background(), LearnHam, message, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-}
-
-func TestSANoTrailingNewline(t *testing.T) {
-	client := New(addr, 0)
-
-	r, err := client.Check(context.Background(), strings.NewReader("woot"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
-	}
-
-	r, err = client.Check(context.Background(), strings.NewReader("Subject: woot\r\n\r\nwoot"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("r is nil")
 	}
 }
 
@@ -108,17 +29,155 @@ func TestSACheck(t *testing.T) {
 	if r == nil {
 		t.Fatal("r is nil")
 	}
+	if r.Score < 5 {
+		t.Errorf("score lower than 5: %#v", r)
+	}
 }
 
 func TestSASymbols(t *testing.T) {
 	client := New(addr, 0)
 	r, err := client.Symbols(context.Background(), strings.NewReader(""+
 		"Date: now\r\n"+
+		"From: invalid\r\n"+
+		"Subject: Hello\r\n"+
+		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
+		"\r\n\r\nthe body penis viagra\r\n"+
+		""), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+	if r.Score < 3 {
+		t.Errorf("score lower than 3: %#v", r)
+	}
+}
+
+func TestSAReport(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Report(context.Background(), strings.NewReader(""+
+		"Date: now\r\n"+
 		"From: a@example.com\r\n"+
 		"Subject: Hello\r\n"+
 		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
-		"\r\n\r\nthe body\r\n"+
+		"\r\n\r\nthe body"+
 		""), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	if len(r.Report.Table) < 2 {
+		t.Error("report table unexpectedly short")
+	}
+}
+
+func TestSAProcess(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Process(context.Background(), strings.NewReader(""+
+		"Date: now\r\n"+
+		"From: a@example.com\r\n"+
+		"Subject: Hello\r\n"+
+		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
+		"\r\n\r\nthe body"+
+		""), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+	defer r.Message.Close() // nolint: errcheck
+
+	b, err := ioutil.ReadAll(r.Message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := string(b)
+
+	if !strings.Contains(m, "X-Spam-Status: ") {
+		t.Errorf("message did not have X-Spam-Status: %#v", m)
+	}
+	if !strings.Contains(m, "Subject: Hello\r\n") {
+		t.Errorf("message did not have the subject: %#v", m)
+	}
+	if !strings.Contains(m, "the body") {
+		t.Errorf("message did not have the body: %#v", m)
+	}
+}
+
+func TestSAHeaders(t *testing.T) {
+	client := New(addr, 0)
+	r, err := client.Headers(context.Background(), strings.NewReader(""+
+		"Date: now\r\n"+
+		"From: a@example.com\r\n"+
+		"Subject: Hello\r\n"+
+		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
+		"\r\n\r\nthe body"+
+		""), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+	defer r.Message.Close() // nolint: errcheck
+
+	b, err := ioutil.ReadAll(r.Message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := string(b)
+
+	if !strings.Contains(m, "X-Spam-Status: ") {
+		t.Errorf("message did not have X-Spam-Status: %#v", m)
+	}
+	if !strings.Contains(m, "Subject: Hello\r\n") {
+		t.Errorf("message did not have the subject: %#v", m)
+	}
+	if strings.Contains(m, "the body") {
+		t.Errorf("message did have the body: %#v", m)
+	}
+}
+
+func TestSATell(t *testing.T) {
+	client := New(addr, 0)
+	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
+	r, err := client.Tell(context.Background(), message, Header{
+		HeaderMessageClass: MessageClassSpam,
+		HeaderSet:          TellRemote,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	if r.DidSet[0] != "remote" {
+		t.Errorf("DidSet wrong: %#v", r.DidSet)
+	}
+	if len(r.DidRemove) != 0 {
+		t.Errorf("DidRemove wrong: %#v", r.DidSet)
+	}
+}
+
+// Make sure SA works when we send the message without trailing newline.
+func TestSANoTrailingNewline(t *testing.T) {
+	client := New(addr, 0)
+
+	r, err := client.Check(context.Background(), strings.NewReader("woot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r == nil {
+		t.Fatal("r is nil")
+	}
+
+	r, err = client.Check(context.Background(), strings.NewReader("Subject: woot\r\n\r\nwoot"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

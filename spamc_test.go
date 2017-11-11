@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/teamwork/test"
+	"github.com/teamwork/test/diff"
 	"github.com/teamwork/test/fakeconn"
 )
 
@@ -110,15 +111,21 @@ func TestReadResponse(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			headers, body, err := readResponse(strings.NewReader(tc.in))
+			headers, tp, err := readResponse(strings.NewReader(tc.in))
 
 			if !test.ErrorContains(err, tc.expectedErr) {
 				t.Errorf("wrong error; want «%v», got «%v»", tc.expectedErr, err)
 			}
+
+			body, err := readBody(tp)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if body != tc.expectedBody {
+				t.Errorf("wrong body\nout:  %#v\nexpected: %#v\n", body, tc.expectedBody)
 			}
 			if !reflect.DeepEqual(headers, tc.expectedHeader) {
-				t.Errorf("\nout:      %#v\nexpected: %#v\n", headers, tc.expectedHeader)
+				t.Errorf("\nout:  %#v\nexpected: %#v\n", headers, tc.expectedHeader)
 			}
 		})
 	}
@@ -241,6 +248,88 @@ func TestParseSpamHeader(t *testing.T) {
 	}
 }
 
+func TestParseReport(t *testing.T) {
+	cases := []struct {
+		in   string
+		want Report
+	}{
+		{
+			normalizeSpace(`
+				Spam detection software, running on the system "d311d8df23f8",
+				has NOT identified this incoming email as spam.
+
+				Content preview:  the body [...]
+
+				Content analysis details:   (1.6 points, 5.0 required)
+
+				 pts rule name              description
+				---- ---------------------- --------------------------------------------------
+				 0.4 INVALID_DATE           Invalid Date: header (not RFC 2822)
+				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP
+				-1.2 MISSING_HEADERS        Missing To: header
+			`),
+			Report{
+				Intro: normalizeSpace(`
+					Spam detection software, running on the system "d311d8df23f8",
+					has NOT identified this incoming email as spam.
+
+					Content preview:  the body [...]
+
+					Content analysis details:   (1.6 points, 5.0 required)
+				`),
+				Table: []struct {
+					Points      float64
+					Rule        string
+					Description string
+				}{
+					{
+						Points:      0.4,
+						Rule:        "INVALID_DATE",
+						Description: "Invalid Date: header (not RFC 2822)",
+					},
+					{
+						Points:      0.0,
+						Rule:        "NO_RELAYS",
+						Description: "Informational: message was not relayed via SMTP",
+					},
+					{
+						Points:      -1.2,
+						Rule:        "MISSING_HEADERS",
+						Description: "Missing To: header",
+					},
+				},
+			},
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			tp := textproto.NewReader(bufio.NewReader(strings.NewReader(tc.in)))
+
+			out, err := parseReport(tp)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if d := diff.TextDiff(tc.want.Intro, out.Intro); d != "" {
+				t.Errorf("intro wrong\n%v", d)
+			}
+
+			if !reflect.DeepEqual(out.Table, tc.want.Table) {
+				t.Errorf("wrong table\nout:  %#v\nwant: %#v\n",
+					out.Table, tc.want.Table)
+			}
+
+			if !t.Failed() {
+				tc.in += "\n"
+				if d := diff.TextDiff(out.String(), tc.in); d != "" {
+					t.Errorf("String() not the same\n%v", d)
+				}
+			}
+		})
+	}
+}
+
 type tr struct{}
 
 func (t tr) Read([]byte) (int, error) { return 0, nil }
@@ -278,4 +367,25 @@ func TestSizeFromReader(t *testing.T) {
 			}
 		})
 	}
+}
+
+func normalizeSpace(in string) string {
+	indent := 0
+	for i := 0; i < len(in); i++ {
+		switch in[i] {
+		case '\n':
+			// Do nothing
+		case '\t':
+			indent++
+		default:
+			break
+		}
+	}
+
+	r := ""
+	for _, line := range strings.Split(in, "\n") {
+		r += strings.Replace(line, "\t", "", indent) + "\n"
+	}
+
+	return strings.TrimSpace(r)
 }
