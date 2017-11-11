@@ -61,7 +61,7 @@ func TestWriteDefaultUser(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			"CMD", "Message", Header{HeaderUser: "xx"},
+			"CMD", "Message", Header{"User": "xx"},
 			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: xx\r\n\r\nMessage",
 			"",
 		},

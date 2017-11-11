@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"sort"
 	"strings"
 	"time"
 )
@@ -39,21 +40,63 @@ type Dialer interface {
 // Header for requests.
 type Header map[string]string
 
-// Header key constants.
-const (
-	HeaderContentLength = "Content-length"
-	HeaderDidRemove     = "Didremove"
-	HeaderDidSet        = "Didset"
-	HeaderMessageClass  = "Message-class"
-	HeaderRemove        = "Remove"
-	HeaderSet           = "Set"
-	HeaderSpam          = "Spam"
-	HeaderUser          = "User"
-	MessageClassSpam    = "spam"
-	MessageClassHam     = "ham"
-	TellLocal           = "local"
-	TellRemote          = "remote"
-)
+// Set a header. This will normalize the key casing, which is important because
+// SpamAssassin may ignore the header otherwise.
+func (h Header) Set(k, v string) Header {
+	k = h.normalizeKey(k)
+
+	switch k {
+	case "Message-class":
+		v := strings.ToLower(v)
+		if v != "" && v != "spam" && v != "ham" {
+			panic(fmt.Sprintf("unknown value for %v header: %v", k, v))
+		}
+	case "Set", "Remove":
+		v := strings.Split(strings.ToLower(v), ",")
+		for _, x := range v {
+			if x != "" && x != "local" && x != "remote" {
+				panic(fmt.Sprintf("unknown value for %v header: %v", k, x))
+			}
+		}
+	}
+	h[k] = v
+	return h
+}
+
+// Get a header.
+func (h Header) Get(k string) (string, bool) {
+	v, ok := h[h.normalizeKey(k)]
+	return v, ok
+}
+
+// Iterate over the map in alphabetical order.
+func (h Header) Iterate() [][]string {
+	r := make([][]string, len(h))
+	i := 0
+	for k, v := range h {
+		r[i] = []string{k, v}
+		i++
+	}
+	sort.Slice(r, func(i, j int) bool { return r[i][0] < r[j][0] })
+	return r
+}
+
+// Normalize the header casing.
+func (h Header) normalizeKey(k string) string {
+	if len(k) == 0 {
+		return ""
+	}
+
+	k = strings.ToLower(k)
+	switch k {
+	case "didremove", "did-remove":
+		return "DidRemove"
+	case "didset", "did-set":
+		return "DidSet"
+	default:
+		return strings.ToUpper(string(k[0])) + k[1:]
+	}
+}
 
 // New instance of Client.
 func New(host string, timeout time.Duration) *Client {
@@ -403,10 +446,11 @@ func (c *Client) Tell(
 	}
 
 	r := &TellResponse{}
-	if h, ok := respHeaders[HeaderDidSet]; ok {
+	fmt.Printf("%#v\n", respHeaders)
+	if h, ok := respHeaders.Get("DidSet"); ok {
 		r.DidSet = strings.Split(h, ",")
 	}
-	if h, ok := respHeaders[HeaderDidRemove]; ok {
+	if h, ok := respHeaders.Get("DidRemove"); ok {
 		r.DidRemove = strings.Split(h, ",")
 	}
 
