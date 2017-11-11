@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -21,10 +22,10 @@ func TestSAPing(t *testing.T) {
 
 func TestSATell(t *testing.T) {
 	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
+	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 	r, err := client.Tell(context.Background(), message, Header{
-		"Message-class": []string{"spam"},
-		"Set":           []string{"local"},
+		"Message-class": "spam",
+		"Set":           "local",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +37,7 @@ func TestSATell(t *testing.T) {
 
 func TestSALearn(t *testing.T) {
 	client := New(addr, 0)
-	message := "Subject: Hello, world!\r\n\r\nTest message.\r\n"
+	message := strings.NewReader("Subject: Hello, world!\r\n\r\nTest message.\r\n")
 	r, err := client.Learn(context.Background(), LearnHam, message, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func TestSALearn(t *testing.T) {
 func TestSANoTrailingNewline(t *testing.T) {
 	client := New(addr, 0)
 
-	r, err := client.Check(context.Background(), "woot", nil)
+	r, err := client.Check(context.Background(), strings.NewReader("woot"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +58,7 @@ func TestSANoTrailingNewline(t *testing.T) {
 		t.Fatal("r is nil")
 	}
 
-	r, err = client.Check(context.Background(), "Subject: woot\r\n\r\nwoot", nil)
+	r, err = client.Check(context.Background(), strings.NewReader("Subject: woot\r\n\r\nwoot"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestSANoTrailingNewline(t *testing.T) {
 
 func TestSACheck(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Check(context.Background(), "\r\nPenis viagra\r\n", nil)
+	r, err := client.Check(context.Background(), strings.NewReader("\r\nPenis viagra\r\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,13 +80,13 @@ func TestSACheck(t *testing.T) {
 
 func TestSASymbols(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Symbols(context.Background(), ""+
+	r, err := client.Symbols(context.Background(), strings.NewReader(""+
 		"Date: now\r\n"+
 		"From: a@example.com\r\n"+
 		"Subject: Hello\r\n"+
 		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
 		"\r\n\r\nthe body\r\n"+
-		"", nil)
+		""), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,13 +97,13 @@ func TestSASymbols(t *testing.T) {
 
 func TestSAReport(t *testing.T) {
 	client := New(addr, 0)
-	r, err := client.Report(context.Background(), ""+
+	r, err := client.Report(context.Background(), strings.NewReader(""+
 		"Date: now\r\n"+
 		"From: a@example.com\r\n"+
 		"Subject: Hello\r\n"+
 		"Message-ID: <serverfoo2131645635@example.com>\r\n"+
 		"\r\n\r\nthe body"+
-		"", nil)
+		""), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

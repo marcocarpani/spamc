@@ -2,8 +2,12 @@ package spamc
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net/textproto"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,23 +19,19 @@ import (
 
 func TestWrite(t *testing.T) {
 	cases := []struct {
-		inCmd, inMsg string
-		inHeader     Header
-		want         string
-		wantErr      string
+		inCmd    string
+		inMsg    io.Reader
+		inHeader Header
+		want     string
+		wantErr  string
 	}{
-		{
-			"CMD", "Message", Header{HeaderUser: []string{"xx"}},
-			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: xx\r\n\r\nMessage",
-			"",
-		},
-		{
-			"CMD", "Message", nil,
+		{ // testing bytes.NewReader
+			"CMD", bytes.NewReader([]byte("Message")), nil,
 			"CMD SPAMC/1.5\r\nContent-length: 7\r\n\r\nMessage",
 			"",
 		},
-		{"", "Message", nil, "", "empty command"},
-		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\n\r\n", ""},
+		{"", strings.NewReader("Message"), nil, "", "empty command"},
+		{"CMD", strings.NewReader(""), nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\n\r\n", ""},
 	}
 
 	for i, tc := range cases {
@@ -52,6 +52,46 @@ func TestWrite(t *testing.T) {
 	}
 }
 
+func TestWriteDefaultUser(t *testing.T) {
+	cases := []struct {
+		inCmd    string
+		inMsg    string
+		inHeader Header
+		want     string
+		wantErr  string
+	}{
+		{
+			"CMD", "Message", Header{HeaderUser: "xx"},
+			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: xx\r\n\r\nMessage",
+			"",
+		},
+		{
+			"CMD", "Message", nil,
+			"CMD SPAMC/1.5\r\nContent-length: 7\r\nUser: default\r\n\r\nMessage",
+			"",
+		},
+		{"", "Message", nil, "", "empty command"},
+		{"CMD", "", nil, "CMD SPAMC/1.5\r\nContent-length: 0\r\nUser: default\r\n\r\n", ""},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			conn := fakeconn.New()
+			c := Client{conn: conn}
+			c.DefaultUser = "default"
+
+			err := c.write(conn, tc.inCmd, strings.NewReader(tc.inMsg), tc.inHeader)
+			out := conn.Written.String()
+			if out != tc.want {
+				t.Errorf("wrong data written\nout:  %#v\nwant: %#v\n", out, tc.want)
+			}
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong error\nout:  %#v\nwant: %#v\n", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestReadResponse(t *testing.T) {
 	cases := []struct {
 		in             string
@@ -63,7 +103,7 @@ func TestReadResponse(t *testing.T) {
 			in: "SPAMD/1.1 0 EX_OK\r\n" +
 				"Header: value\r\n\r\n" +
 				"THE BODY",
-			expectedHeader: Header{"Header": {"value"}},
+			expectedHeader: Header{"Header": "value"},
 			expectedBody:   "THE BODY\r\n",
 			expectedErr:    "",
 		},
@@ -135,51 +175,51 @@ func TestParseSpamHeader(t *testing.T) {
 	}{
 		// Invalid data
 		{Header{}, false, 0, 0, "header missing"},
-		{Header{"Spam": []string{""}}, false, 0, 0, "header empty"},
+		{Header{"Spam": ""}, false, 0, 0, "header missing"},
 		{
-			Header{"Spam": []string{"clearly incorrect"}},
+			Header{"Spam": "clearly incorrect"},
 			false, 0, 0, "unexpected data",
 		},
 		{
-			Header{"Spam": []string{"bacon ; 0 / 0"}},
+			Header{"Spam": "bacon ; 0 / 0"},
 			false, 0, 0, "unknown spam status",
 		},
 		{
-			Header{"Spam": []string{"no ; 0 "}},
+			Header{"Spam": "no ; 0 "},
 			false, 0, 0, "unexpected data",
 		},
 		{
-			Header{"Spam": []string{"no ; 0 / "}},
+			Header{"Spam": "no ; 0 / "},
 			false, 0, 0, "could not parse",
 		},
 		{
-			Header{"Spam": []string{"no ; 0 / asd"}},
+			Header{"Spam": "no ; 0 / asd"},
 			false, 0, 0, "could not parse",
 		},
 		{
-			Header{"Spam": []string{"no ; asd / 0"}},
+			Header{"Spam": "no ; asd / 0"},
 			false, 0, 0, "could not parse",
 		},
 
 		// Valid data
 		{
-			Header{"Spam": []string{"no ; 0.1 / 5.0"}},
+			Header{"Spam": "no ; 0.1 / 5.0"},
 			false, .1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"no;0.1 / 5.0"}},
+			Header{"Spam": "no;0.1 / 5.0"},
 			false, .1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"no;0.1/5.0"}},
+			Header{"Spam": "no;0.1/5.0"},
 			false, .1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"no;-0.1/5.0"}},
+			Header{"Spam": "no;-0.1/5.0"},
 			false, -.1, 5.0, "",
 		},
 		{
-			Header{"Spam": []string{"TRUe ; 4 / 7.0"}},
+			Header{"Spam": "TRUe ; 4 / 7.0"},
 			true, 4.0, 7.0, "",
 		},
 	}
@@ -273,6 +313,45 @@ func TestParseReport(t *testing.T) {
 				if d := diff.TextDiff(out.String(), tc.in); d != "" {
 					t.Errorf("String() not the same\n%v", d)
 				}
+			}
+		})
+	}
+}
+
+type tr struct{}
+
+func (t tr) Read([]byte) (int, error) { return 0, nil }
+
+func TestSizeFromReader(t *testing.T) {
+	err := ioutil.WriteFile("/tmp/xxx", []byte("xxx"), 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fp, err := os.Open("/tmp/xxx")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		in      io.Reader
+		want    int64
+		wantErr string
+	}{
+		{strings.NewReader("xx"), 2, ""},
+		{bytes.NewReader([]byte("xx")), 2, ""},
+		{fp, 3, ""},
+		{tr{}, 0, "unknown type: spamc.tr"},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			out, err := sizeFromReader(tc.in)
+			if !test.ErrorContains(err, tc.wantErr) {
+				t.Errorf("wrong err\nout:  %#v\nwant: %#v\n", err, tc.wantErr)
+			}
+			if out != tc.want {
+				t.Errorf("\nout:  %#v\nwant: %#v\n", out, tc.want)
 			}
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/textproto"
 	"strings"
@@ -88,7 +89,7 @@ type CheckResponse struct {
 
 // Ping returns a confirmation that spamd is alive.
 func (c *Client) Ping(ctx context.Context) error {
-	read, err := c.send(ctx, CmdPing, "", nil)
+	read, err := c.send(ctx, CmdPing, strings.NewReader(""), nil)
 	if err != nil {
 		return fmt.Errorf("error sending command to spamd: %v", err)
 	}
@@ -101,7 +102,8 @@ func (c *Client) Ping(ctx context.Context) error {
 // Check if the passed message is spam.
 func (c *Client) Check(
 	ctx context.Context,
-	msg string, headers Header,
+	msg io.Reader,
+	headers Header,
 ) (*CheckResponse, error) {
 
 	read, err := c.send(ctx, CmdCheck, msg, headers)
@@ -131,7 +133,7 @@ func (c *Client) Check(
 // symbols that were hit.
 func (c *Client) Symbols(
 	ctx context.Context,
-	msg string,
+	msg io.Reader,
 	headers Header,
 ) (*CheckResponse, error) {
 
@@ -188,7 +190,7 @@ type ReportResponse struct {
 // Report gives a detailed textual report for the message.
 func (c *Client) Report(
 	ctx context.Context,
-	msg string,
+	msg io.Reader,
 	headers Header,
 ) (*ReportResponse, error) {
 	return c.report(ctx, CmdReport, msg, headers)
@@ -198,7 +200,7 @@ func (c *Client) Report(
 // considered spam. If it's not it will set just the spam score.
 func (c *Client) ReportIfSpam(
 	ctx context.Context,
-	msg string,
+	msg io.Reader,
 	headers Header,
 ) (*ReportResponse, error) {
 	return c.report(ctx, CmdReportIfspam, msg, headers)
@@ -207,7 +209,8 @@ func (c *Client) ReportIfSpam(
 // Implement Report and ReportIfSpam
 func (c *Client) report(
 	ctx context.Context,
-	cmd, msg string,
+	cmd string,
+	msg io.Reader,
 	headers Header,
 ) (*ReportResponse, error) {
 
@@ -243,7 +246,7 @@ func (c *Client) report(
 // Process this message and return a modified message.
 func (c *Client) Process(
 	ctx context.Context,
-	msg string,
+	msg io.Reader,
 	headers Header,
 ) (*CheckResponse, error) {
 
@@ -276,7 +279,7 @@ func (c *Client) Process(
 // the body.
 func (c *Client) Headers(
 	ctx context.Context,
-	msg string,
+	msg io.Reader,
 	headers Header,
 ) (*CheckResponse, error) {
 
@@ -316,7 +319,7 @@ type TellResponse struct {
 // reporting, forgetting, revoking).
 func (c *Client) Tell(
 	ctx context.Context,
-	msg string,
+	msg io.Reader,
 	headers Header,
 ) (*TellResponse, error) {
 
@@ -360,7 +363,8 @@ func (c *Client) Tell(
 // Use one of the Learn* constants as the learnType.
 func (c *Client) Learn(
 	ctx context.Context,
-	learnType, msg string,
+	learnType string,
+	msg io.Reader,
 	headers Header,
 ) (*TellResponse, error) {
 
@@ -369,13 +373,13 @@ func (c *Client) Learn(
 	}
 	switch strings.ToUpper(learnType) {
 	case LearnSpam:
-		headers.Add(HeaderMessageClass, "spam")
-		headers.Add(HeaderSet, "local")
+		headers[HeaderMessageClass] = "spam"
+		headers[HeaderSet] = "local"
 	case LearnHam:
-		headers.Add(HeaderMessageClass, "ham")
-		headers.Add(HeaderSet, "local")
+		headers[HeaderMessageClass] = "ham"
+		headers[HeaderSet] = "local"
 	case LearnForget:
-		headers.Add(HeaderRemove, "local")
+		headers[HeaderRemove] = "local"
 	default:
 		return nil, fmt.Errorf("unknown learn type: %v", learnType)
 	}
