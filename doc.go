@@ -15,4 +15,4 @@
 // directly setting the map. This ensures that the correct capitalisation is
 // used; using the Content-Length header is a fatal error ("l" in length needs
 // to be lower-case).
-package spamc // import "github.com/teamwork/go-spamc"
+package spamc // import "github.com/teamwork/spamc"

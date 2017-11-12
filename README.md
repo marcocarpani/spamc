@@ -1,9 +1,12 @@
-[![Build Status](https://travis-ci.org/Teamwork/go-spamc.svg?branch=master)](https://travis-ci.org/Teamwork/go-spamc)
-[![codecov](https://codecov.io/gh/Teamwork/go-spamc/branch/master/graph/badge.svg?token=n0k8YjbQOL)](https://codecov.io/gh/Teamwork/go-spamc)
-[![GoDoc](https://godoc.org/github.com/Teamwork/go-spamc?status.svg)](https://godoc.org/github.com/Teamwork/go-spamc)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Teamwork/go-spamc)](https://goreportcard.com/report/github.com/Teamwork/go-spamc)
+[![Build Status](https://travis-ci.org/Teamwork/spamc.svg?branch=master)](https://travis-ci.org/Teamwork/spamc)
+[![codecov](https://codecov.io/gh/Teamwork/spamc/branch/master/graph/badge.svg?token=n0k8YjbQOL)](https://codecov.io/gh/Teamwork/spamc)
+[![GoDoc](https://godoc.org/github.com/Teamwork/spamc?status.svg)](https://godoc.org/github.com/Teamwork/spamc)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Teamwork/spamc)](https://goreportcard.com/report/github.com/Teamwork/spamc)
 
-go-spamc is a Go client library for SpamAssassin's spamd daemon.
+spamc is a Go client library for SpamAssassin's spamd daemon.
+
+It started out as a fork of saintienn/go-spamc with some fixes, but has since
+been completely rewritten.
 
 Basic example:
 
