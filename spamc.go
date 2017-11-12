@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 // Protocol version we talk.
@@ -54,9 +55,6 @@ var errorMessages = map[int]string{
 	79: "Read timeout",                           // EX_TIMEOUT
 }
 
-// Temporary hack to write tests.
-var testConnHook net.Conn
-
 // send a command to spamd.
 func (c *Client) send(
 	ctx context.Context,
@@ -67,7 +65,7 @@ func (c *Client) send(
 
 	conn, err := c.dial(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("could not dial to %v: %v", c.host, err)
+		return nil, errors.Wrapf(err, "could not dial to %v", c.addr)
 	}
 
 	if err := c.write(conn, cmd, message, headers); err != nil {
@@ -103,7 +101,7 @@ func (c *Client) write(
 	if _, ok := headers.Get("Content-Length"); !ok {
 		size, err := sizeFromReader(message)
 		if err != nil {
-			return fmt.Errorf("could not determine size of message: %v", err)
+			return errors.Wrap(err, "could not determine size of message")
 		}
 		headers.Set("Content-length", fmt.Sprintf("%v", size))
 	}
@@ -129,7 +127,7 @@ func (c *Client) write(
 	// Write to spamd.
 	if _, err := io.Copy(conn, io.MultiReader(buf, message)); err != nil {
 		conn.Close() // nolint: errcheck
-		return fmt.Errorf("could not send to spamd: %v", err)
+		return errors.Wrap(err, "could not send to spamd")
 	}
 
 	// Close connection for writing; this makes sure all buffered data is sent.
@@ -156,18 +154,18 @@ func sizeFromReader(r io.Reader) (int64, error) {
 		}
 		return stat.Size(), nil
 	default:
-		return 0, fmt.Errorf("unknown type: %T", v)
+		return 0, errors.Errorf("unknown type: %T", v)
 	}
 
 }
 
 func (c *Client) dial(ctx context.Context) (net.Conn, error) {
-	conn, err := c.dialer.DialContext(ctx, "tcp", c.host)
+	conn, err := c.dialer.DialContext(ctx, "tcp", c.addr)
 	if err != nil {
 		if conn != nil {
 			conn.Close() // nolint: errcheck
 		}
-		return nil, fmt.Errorf("could not connect to spamd: %v", err)
+		return nil, errors.Wrap(err, "could not connect to spamd")
 	}
 
 	// Set connection timeout
@@ -175,7 +173,7 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 		err = conn.SetDeadline(time.Now().Add(ndial.Timeout))
 		if err != nil {
 			conn.Close() // nolint: errcheck
-			return nil, fmt.Errorf("connection to spamd timed out: %v", err)
+			return nil, errors.Wrap(err, "connection to spamd timed out")
 		}
 	}
 
@@ -206,7 +204,7 @@ func readResponse(read io.Reader) (Header, *textproto.Reader, error) {
 
 	tpHeader, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, tp, fmt.Errorf("could not read headers: %v", err)
+		return nil, tp, errors.Wrap(err, "could not read headers")
 	}
 
 	headers := make(Header)
@@ -224,10 +222,10 @@ func parseCodeLine(tp *textproto.Reader, isPing bool) error {
 	}
 
 	if len(line) < 11 {
-		return fmt.Errorf("short response: %v", line)
+		return errors.Errorf("short response: %v", line)
 	}
 	if !strings.HasPrefix(line, "SPAMD/") {
-		return fmt.Errorf("unrecognised response: %v", line)
+		return errors.Errorf("unrecognised response: %v", line)
 	}
 
 	version := line[6:9]
@@ -236,14 +234,15 @@ func parseCodeLine(tp *textproto.Reader, isPing bool) error {
 	// rather than the server version.
 	if isPing {
 		if version != clientProtocolVersion {
-			return fmt.Errorf("unexpected version: %v; we expected %v",
+			return errors.Errorf("unexpected version: %v; we expected %v",
 				version, clientProtocolVersion)
 		}
 	} else {
 		// in some errors it uses version 1.0, so accept both 1.0 and 1.1.
 		//     spamd/1.0 76 bad header line: asdasd
 		if !supportedVersion(version) {
-			return fmt.Errorf("unknown server protocol version %v; we only understand versions %v",
+			return errors.Errorf(
+				"unknown server protocol version %v; we only understand versions %v",
 				version, serverProtocolVersions)
 		}
 	}
@@ -251,14 +250,14 @@ func parseCodeLine(tp *textproto.Reader, isPing bool) error {
 	s := strings.Split(line[10:], " ")
 	code, err := strconv.Atoi(s[0])
 	if err != nil {
-		return fmt.Errorf("could not parse return code: %v", err)
+		return errors.Wrap(err, "could not parse return code")
 	}
 	if code != 0 {
 		text := strings.Join(s[1:], " ")
 		if msg, ok := errorMessages[code]; ok {
-			return fmt.Errorf("spamd returned code %v: %v: %v", code, msg, text)
+			return errors.Errorf("spamd returned code %v: %v: %v", code, msg, text)
 		}
-		return fmt.Errorf("spamd returned code %v: %v", code, text)
+		return errors.Errorf("spamd returned code %v: %v", code, text)
 	}
 
 	return nil
@@ -309,7 +308,7 @@ func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
 
 	s := strings.Split(spam, ";")
 	if len(s) != 2 {
-		return false, 0, 0, fmt.Errorf("unexpected data: %v", spam[0])
+		return false, 0, 0, errors.Errorf("unexpected data: %v", spam[0])
 	}
 
 	isSpam := false
@@ -319,26 +318,26 @@ func parseSpamHeader(respHeaders Header) (bool, float64, float64, error) {
 	case "false", "no":
 		isSpam = false
 	default:
-		return false, 0, 0, fmt.Errorf("unknown spam status: %v", s[0])
+		return false, 0, 0, errors.Errorf("unknown spam status: %v", s[0])
 	}
 
 	split := strings.Split(s[1], "/")
 	if len(split) != 2 {
-		return false, 0, 0, fmt.Errorf("unexpected data: %v", s[1])
+		return false, 0, 0, errors.Errorf("unexpected data: %v", s[1])
 	}
 	score, err := strconv.ParseFloat(strings.TrimSpace(split[0]), 64)
 	if err != nil {
-		return false, 0, 0, fmt.Errorf("could not parse spam score: %v", err)
+		return false, 0, 0, errors.Errorf("could not parse spam score: %v", err)
 	}
 	baseScore, err := strconv.ParseFloat(strings.TrimSpace(split[1]), 64)
 	if err != nil {
-		return false, 0, 0, fmt.Errorf("could not parse base spam score: %v", err)
+		return false, 0, 0, errors.Errorf("could not parse base spam score: %v", err)
 	}
 
 	return isSpam, score, baseScore, nil
 }
 
-// Report contains the results of a Report commands.
+// Report contains the parsed results of the Report command.
 type Report struct {
 	Intro string
 	Table []struct {
@@ -348,6 +347,7 @@ type Report struct {
 	}
 }
 
+// String formats the reports like SpamAssassin.
 func (r Report) String() string {
 	table := " pts rule name              description\n"
 	table += "---- ---------------------- --------------------------------------------------\n"

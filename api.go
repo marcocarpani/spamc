@@ -3,7 +3,6 @@ package spamc
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 // Client is a connection to the spamd daemon.
@@ -18,7 +19,7 @@ type Client struct {
 	// DefaultUser is the User to send if a command didn't specify one.
 	DefaultUser string
 
-	host   string
+	addr   string
 	dialer Dialer
 	conn   net.Conn
 }
@@ -37,11 +38,15 @@ type Dialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-// Header for requests.
+// Header for requests and responses.
 type Header map[string]string
 
 // Set a header. This will normalize the key casing, which is important because
 // SpamAssassin may ignore the header otherwise.
+//
+// The map is modified in-place, but is also returned for easier use:
+//
+//   fun(Header{}.Set("key", "value").Set("foo", "bar"))
 func (h Header) Set(k, v string) Header {
 	k = h.normalizeKey(k)
 
@@ -63,7 +68,8 @@ func (h Header) Set(k, v string) Header {
 	return h
 }
 
-// Get a header.
+// Get a header value; the second return value indicates if the map has this
+// key.
 func (h Header) Get(k string) (string, bool) {
 	v, ok := h[h.normalizeKey(k)]
 	return v, ok
@@ -98,26 +104,21 @@ func (h Header) normalizeKey(k string) string {
 	}
 }
 
-// New instance of Client.
-func New(host string, timeout time.Duration) *Client {
-	if timeout == 0 {
-		timeout = 30 * time.Second
+// New created a new Client instance.
+//
+// The addr should be as "host:port"; as dialer most people will want to use
+// net.Dialer:
+//
+//   New("127.0.0.1:783", &net.Dialer{Timeout: 20 * time.Second})
+//
+// If the passed dialer is nil then this will be used as a default.
+func New(addr string, d Dialer) *Client {
+	if d == nil {
+		d = &net.Dialer{Timeout: 20 * time.Second}
 	}
-
 	return &Client{
-		host: host,
-		dialer: &net.Dialer{
-			Timeout: timeout,
-		},
-	}
-}
-
-// NewWithDialer creates a new instance of Client which connects to spamd with
-// the given dialer.
-func NewWithDialer(host string, dialer Dialer) *Client {
-	return &Client{
-		host:   host,
-		dialer: dialer,
+		addr:   addr,
+		dialer: d,
 	}
 }
 
@@ -125,7 +126,7 @@ func NewWithDialer(host string, dialer Dialer) *Client {
 func (c *Client) Ping(ctx context.Context) error {
 	read, err := c.send(ctx, cmdPing, strings.NewReader(""), nil)
 	if err != nil {
-		return fmt.Errorf("error sending command to spamd: %v", err)
+		return errors.Wrap(err, "error sending command to spamd")
 	}
 	defer read.Close() // nolint: errcheck
 
@@ -133,50 +134,57 @@ func (c *Client) Ping(ctx context.Context) error {
 	return parseCodeLine(tp, true)
 }
 
-// CheckResponse is the response from the Check and Symbols commands.
-type CheckResponse struct {
-	// IsSpam reports if this message is considered spam.
-	IsSpam bool
+// ResponseScore contains the Spam score of this email; used in various
+// different responses.
+type ResponseScore struct {
+	IsSpam    bool    // IsSpam reports if this message is considered spam.
+	Score     float64 // Score is the spam score of this message.
+	BaseScore float64 // BaseScore is the "minimum spam score" configured on the server.
+}
 
-	// Score is the spam score of this message.
-	Score float64
-
-	// BaseScore is the "minimum spam score" configured on the server. This
-	// is usually 5.0.
-	BaseScore float64
-
-	// Symbols that matches; only when the Symbols command is used.
-	Symbols []string
+// ResponseCheck is the response from the Check command.
+type ResponseCheck struct {
+	ResponseScore
 }
 
 // Check if the passed message is spam.
 func (c *Client) Check(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*CheckResponse, error) {
+	hdr Header,
+) (*ResponseCheck, error) {
 
-	read, err := c.send(ctx, cmdCheck, msg, headers)
+	read, err := c.send(ctx, cmdCheck, msg, hdr)
 	if err != nil {
-		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+		return nil, errors.Wrap(err, "error sending command to spamd")
 	}
 	defer read.Close() // nolint: errcheck
 
 	respHeaders, _, err := readResponse(read)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+		return nil, errors.Wrap(err, "could not parse spamd response")
 	}
 
 	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("could not read Spam header: %v", err)
+		return nil, errors.Wrap(err, "could not read Spam header")
 	}
 
-	return &CheckResponse{
-		IsSpam:    isSpam,
-		Score:     score,
-		BaseScore: baseScore,
+	return &ResponseCheck{
+		ResponseScore: ResponseScore{
+			IsSpam:    isSpam,
+			Score:     score,
+			BaseScore: baseScore,
+		},
 	}, nil
+}
+
+// ResponseSymbols is the response from the Symbols command.
+type ResponseSymbols struct {
+	ResponseScore
+
+	// Symbols that matched.
+	Symbols []string
 }
 
 // Symbols checks if the message is spam and returns the score and a list of all
@@ -184,33 +192,33 @@ func (c *Client) Check(
 func (c *Client) Symbols(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*CheckResponse, error) {
+	hdr Header,
+) (*ResponseSymbols, error) {
 
 	// SPAMD/1.1 0 EX_OK
 	// Content-length: 50
 	// Spam: False ; 1.6 / 5.0
 	//
 	// INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS
-	read, err := c.send(ctx, cmdSymbols, msg, headers)
+	read, err := c.send(ctx, cmdSymbols, msg, hdr)
 	if err != nil {
-		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+		return nil, errors.Wrap(err, "error sending command to spamd")
 	}
 	defer read.Close() // nolint: errcheck
 
 	respHeaders, tp, err := readResponse(read)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+		return nil, errors.Wrap(err, "could not parse spamd response")
 	}
 
 	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("could not read Spam header: %v", err)
+		return nil, errors.Wrap(err, "could not read Spam header")
 	}
 
 	body, err := readBody(tp)
 	if err != nil {
-		return nil, fmt.Errorf("could not read body: %v", err)
+		return nil, errors.Wrap(err, "could not read body")
 	}
 
 	s := strings.Split(strings.TrimSpace(body), ",")
@@ -219,25 +227,19 @@ func (c *Client) Symbols(
 		s = *new([]string)
 	}
 
-	return &CheckResponse{
-		IsSpam:    isSpam,
-		Score:     score,
-		BaseScore: baseScore,
-		Symbols:   s,
+	return &ResponseSymbols{
+		ResponseScore: ResponseScore{
+			IsSpam:    isSpam,
+			Score:     score,
+			BaseScore: baseScore,
+		},
+		Symbols: s,
 	}, nil
 }
 
-// ReportResponse is the response from the Report and ReportIfSpam commands.
-type ReportResponse struct {
-	// IsSpam reports if this message is considered spam.
-	IsSpam bool
-
-	// Score is the spam score of this message.
-	Score float64
-
-	// BaseScore is the "minimum spam score" configured on the server. This
-	// is usually 5.0.
-	BaseScore float64
+// ResponseReport is the response from the Report and ReportIfSpam commands.
+type ResponseReport struct {
+	ResponseScore
 
 	// Report broken down in the found rules and their descriptions.
 	Report Report
@@ -247,9 +249,9 @@ type ReportResponse struct {
 func (c *Client) Report(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*ReportResponse, error) {
-	return c.report(ctx, cmdReport, msg, headers)
+	hdr Header,
+) (*ResponseReport, error) {
+	return c.report(ctx, cmdReport, msg, hdr)
 }
 
 // ReportIfSpam gives a detailed textual report for the message if it is
@@ -257,9 +259,9 @@ func (c *Client) Report(
 func (c *Client) ReportIfSpam(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*ReportResponse, error) {
-	return c.report(ctx, cmdReportIfspam, msg, headers)
+	hdr Header,
+) (*ResponseReport, error) {
+	return c.report(ctx, cmdReportIfspam, msg, hdr)
 }
 
 // Implement Report and ReportIfSpam
@@ -267,52 +269,43 @@ func (c *Client) report(
 	ctx context.Context,
 	cmd string,
 	msg io.Reader,
-	headers Header,
-) (*ReportResponse, error) {
+	hdr Header,
+) (*ResponseReport, error) {
 
-	read, err := c.send(ctx, cmd, msg, headers)
+	read, err := c.send(ctx, cmd, msg, hdr)
 	if err != nil {
-		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+		return nil, errors.Wrap(err, "error sending command to spamd")
 	}
 	defer read.Close() // nolint: errcheck
 
 	respHeaders, tp, err := readResponse(read)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+		return nil, errors.Wrap(err, "could not parse spamd response")
 	}
 
 	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("could not read Spam header: %v", err)
+		return nil, errors.Wrap(err, "could not read Spam header")
 	}
 
 	report, err := parseReport(tp)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse report: %v", err)
+		return nil, errors.Wrap(err, "could not parse report")
 	}
 
-	return &ReportResponse{
-		IsSpam:    isSpam,
-		Score:     score,
-		BaseScore: baseScore,
-		Report:    report,
+	return &ResponseReport{
+		ResponseScore: ResponseScore{
+			IsSpam:    isSpam,
+			Score:     score,
+			BaseScore: baseScore,
+		},
+		Report: report,
 	}, nil
 }
 
-// ProcessResponse is the response from the Process and Headers commands.
-type ProcessResponse struct {
-	// IsSpam reports if this message is considered spam.
-	IsSpam bool
-
-	// Score is the spam score of this message.
-	Score float64
-
-	// BaseScore is the "minimum spam score" configured on the server. This
-	// is usually 5.0.
-	BaseScore float64
-
-	// Symbols that matches; only when the Symbols command is used.
-	Symbols []string
+// ResponseProcess is the response from the Process and Headers commands.
+type ResponseProcess struct {
+	ResponseScore
 
 	// Message headers and body.
 	Message io.ReadCloser
@@ -337,29 +330,31 @@ func (r rc) Close() error {
 func (c *Client) Process(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*ProcessResponse, error) {
+	hdr Header,
+) (*ResponseProcess, error) {
 
-	read, err := c.send(ctx, cmdProcess, msg, headers)
+	read, err := c.send(ctx, cmdProcess, msg, hdr)
 	if err != nil {
-		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+		return nil, errors.Wrap(err, "error sending command to spamd")
 	}
 
 	respHeaders, tp, err := readResponse(read)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+		return nil, errors.Wrap(err, "could not parse spamd response")
 	}
 
 	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("could not read Spam header: %v", err)
+		return nil, errors.Wrap(err, "could not read Spam header")
 	}
 
-	return &ProcessResponse{
-		IsSpam:    isSpam,
-		Score:     score,
-		BaseScore: baseScore,
-		Message:   rc{read: read, buff: tp.R},
+	return &ResponseProcess{
+		ResponseScore: ResponseScore{
+			IsSpam:    isSpam,
+			Score:     score,
+			BaseScore: baseScore,
+		},
+		Message: rc{read: read, buff: tp.R},
 	}, nil
 }
 
@@ -370,34 +365,36 @@ func (c *Client) Process(
 func (c *Client) Headers(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*ProcessResponse, error) {
+	hdr Header,
+) (*ResponseProcess, error) {
 
-	read, err := c.send(ctx, cmdHeaders, msg, headers)
+	read, err := c.send(ctx, cmdHeaders, msg, hdr)
 	if err != nil {
-		return nil, fmt.Errorf("error sending command to spamd: %v", err)
+		return nil, errors.Wrap(err, "error sending command to spamd")
 	}
 
 	respHeaders, tp, err := readResponse(read)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+		return nil, errors.Wrap(err, "could not parse spamd response")
 	}
 
 	isSpam, score, baseScore, err := parseSpamHeader(respHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("could not read Spam header: %v", err)
+		return nil, errors.Wrap(err, "could not read Spam header")
 	}
 
-	return &ProcessResponse{
-		IsSpam:    isSpam,
-		Score:     score,
-		BaseScore: baseScore,
-		Message:   rc{read: read, buff: tp.R},
+	return &ResponseProcess{
+		ResponseScore: ResponseScore{
+			IsSpam:    isSpam,
+			Score:     score,
+			BaseScore: baseScore,
+		},
+		Message: rc{read: read, buff: tp.R},
 	}, nil
 }
 
-// TellResponse is the response of a TELL command.
-type TellResponse struct {
+// ResponseTell is the response of a TELL command.
+type ResponseTell struct {
 	DidSet    []string
 	DidRemove []string
 }
@@ -413,24 +410,22 @@ type TellResponse struct {
 //
 // To learn a message as spam:
 //
-//     c.Tell(ctx, msg, Header{
-//         HeaderMessageClass: MessageClassSpam
-//         HeaderSet:          []string{TellLocal},
-//     })
+//     c.Tell(ctx, msg, Header{}.
+//         Set("Message-class", "spam").
+//         Set("Set", "local"))
 //
 // Or to learn a message as ham:
 //
-//     c.Tell(ctx, msg, Header{
-//         HeaderMessageClass: MessageClassHam,
-//         HeaderSet:          []string{TellLocal},
-//     })
+//     c.Tell(ctx, msg, Header{}.
+//         Set("Message-class", "ham").
+//         Set("Set", "local"))
 func (c *Client) Tell(
 	ctx context.Context,
 	msg io.Reader,
-	headers Header,
-) (*TellResponse, error) {
+	hdr Header,
+) (*ResponseTell, error) {
 
-	read, err := c.send(ctx, cmdTell, msg, headers)
+	read, err := c.send(ctx, cmdTell, msg, hdr)
 	defer read.Close() // nolint: errcheck
 	if err != nil {
 		if serr, ok := err.(Error); ok && serr.Code == 69 {
@@ -442,11 +437,10 @@ func (c *Client) Tell(
 
 	respHeaders, _, err := readResponse(read)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse spamd response: %v", err)
+		return nil, errors.Wrap(err, "could not parse spamd response")
 	}
 
-	r := &TellResponse{}
-	fmt.Printf("%#v\n", respHeaders)
+	r := &ResponseTell{}
 	if h, ok := respHeaders.Get("DidSet"); ok {
 		r.DidSet = strings.Split(h, ",")
 	}
