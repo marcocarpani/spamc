@@ -34,24 +34,28 @@ func TestPing(t *testing.T) {
 func TestCheck(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *CheckResponse
+		want    *ResponseCheck
 		wantErr string
 	}{
 		{
 			"SPAMD/1.1 0 EX_OK\r\nSpam: yes; 6.42 / 5.0\r\n\r\n",
-			&CheckResponse{
-				IsSpam:    true,
-				Score:     6.42,
-				BaseScore: 5,
+			&ResponseCheck{
+				ResponseScore: ResponseScore{
+					IsSpam:    true,
+					Score:     6.42,
+					BaseScore: 5,
+				},
 			},
 			"",
 		},
 		{
 			"SPAMD/1.1 0 EX_OK\r\nSpam: no; -2.0 / 5.0\r\n\r\n",
-			&CheckResponse{
-				IsSpam:    false,
-				Score:     -2.0,
-				BaseScore: 5,
+			&ResponseCheck{
+				ResponseScore: ResponseScore{
+					IsSpam:    false,
+					Score:     -2.0,
+					BaseScore: 5,
+				},
 			},
 			"",
 		},
@@ -75,7 +79,7 @@ func TestCheck(t *testing.T) {
 func TestSymbols(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *CheckResponse
+		want    *ResponseSymbols
 		wantErr string
 	}{
 		{
@@ -84,11 +88,13 @@ func TestSymbols(t *testing.T) {
 				"Spam: False ; 1.6 / 5.0\r\n" +
 				"\r\n" +
 				"INVALID_DATE,MISSING_HEADERS,NO_RECEIVED,NO_RELAYS\r\n",
-			&CheckResponse{
-				IsSpam:    false,
-				Score:     1.6,
-				BaseScore: 5.0,
-				Symbols:   []string{"INVALID_DATE", "MISSING_HEADERS", "NO_RECEIVED", "NO_RELAYS"},
+			&ResponseSymbols{
+				ResponseScore: ResponseScore{
+					IsSpam:    false,
+					Score:     1.6,
+					BaseScore: 5.0,
+				},
+				Symbols: []string{"INVALID_DATE", "MISSING_HEADERS", "NO_RECEIVED", "NO_RELAYS"},
 			},
 			"",
 		},
@@ -98,11 +104,13 @@ func TestSymbols(t *testing.T) {
 				"Spam: False ; 1.6 / 5.0\r\n" +
 				"\r\n" +
 				"\r\n",
-			&CheckResponse{
-				IsSpam:    false,
-				Score:     1.6,
-				BaseScore: 5.0,
-				Symbols:   *new([]string),
+			&ResponseSymbols{
+				ResponseScore: ResponseScore{
+					IsSpam:    false,
+					Score:     1.6,
+					BaseScore: 5.0,
+				},
+				Symbols: *new([]string),
 			},
 			"",
 		},
@@ -126,7 +134,7 @@ func TestSymbols(t *testing.T) {
 func TestReport(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *ReportResponse
+		want    *ResponseReport
 		wantErr string
 	}{
 		{
@@ -148,10 +156,12 @@ func TestReport(t *testing.T) {
 				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP
 				-1.2 MISSING_HEADERS        Missing To: header
 			`), "\n", "\r\n", -1),
-			&ReportResponse{
-				IsSpam:    false,
-				Score:     1.6,
-				BaseScore: 5.0,
+			&ResponseReport{
+				ResponseScore: ResponseScore{
+					IsSpam:    false,
+					Score:     1.6,
+					BaseScore: 5.0,
+				},
 				Report: Report{
 					Intro: normalizeSpace(`
 					Spam detection software, running on the system "d311d8df23f8",
@@ -206,7 +216,7 @@ func TestReport(t *testing.T) {
 func TestProcess(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *ProcessResponse
+		want    *ResponseProcess
 		wantMsg string
 		wantErr string
 	}{
@@ -221,10 +231,12 @@ func TestProcess(t *testing.T) {
 
 				asd
 			`), "\n", "\r\n", -1),
-			&ProcessResponse{
-				IsSpam:    false,
-				Score:     1.6,
-				BaseScore: 5.0,
+			&ResponseProcess{
+				ResponseScore: ResponseScore{
+					IsSpam:    false,
+					Score:     1.6,
+					BaseScore: 5.0,
+				},
 			},
 			"Subject: foo\r\nX-Spam: yes\r\n\r\nasd",
 			"",
@@ -263,7 +275,7 @@ func TestProcess(t *testing.T) {
 func TestHeaders(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *ProcessResponse
+		want    *ResponseProcess
 		wantMsg string
 		wantErr string
 	}{
@@ -276,10 +288,12 @@ func TestHeaders(t *testing.T) {
 				Subject: foo
 				X-Spam: yes
 			`), "\n", "\r\n", -1),
-			&ProcessResponse{
-				IsSpam:    false,
-				Score:     1.6,
-				BaseScore: 5.0,
+			&ResponseProcess{
+				ResponseScore: ResponseScore{
+					IsSpam:    false,
+					Score:     1.6,
+					BaseScore: 5.0,
+				},
 			},
 			"Subject: foo\r\nX-Spam: yes",
 			"",
@@ -318,7 +332,7 @@ func TestHeaders(t *testing.T) {
 func TestTell(t *testing.T) {
 	cases := []struct {
 		in      string
-		want    *TellResponse
+		want    *ResponseTell
 		wantErr string
 	}{
 		{
@@ -326,7 +340,7 @@ func TestTell(t *testing.T) {
 				"Content-length: 0\r\n" +
 				"DidSet: local,remote\r\n" +
 				"\r\n",
-			&TellResponse{
+			&ResponseTell{
 				DidSet: []string{"local", "remote"},
 			},
 			"",
@@ -359,7 +373,7 @@ func (d *testDialer) DialContext(ctx context.Context, network, address string) (
 func newClient(resp string) *Client {
 	d := &testDialer{conn: fakeconn.New()}
 	d.conn.ReadFrom.WriteString(resp)
-	return NewWithDialer("", d)
+	return New("", d)
 }
 
 func TestHeader(t *testing.T) {

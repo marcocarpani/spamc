@@ -1,35 +1,44 @@
-[![Build Status](https://travis-ci.org/Teamwork/go-spamc.svg?branch=master)](https://travis-ci.org/Teamwork/go-spamc)
-[![codecov](https://codecov.io/gh/Teamwork/go-spamc/branch/master/graph/badge.svg?token=n0k8YjbQOL)](https://codecov.io/gh/Teamwork/go-spamc)
-[![GoDoc](https://godoc.org/github.com/Teamwork/go-spamc?status.svg)](https://godoc.org/github.com/Teamwork/go-spamc)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Teamwork/go-spamc)](https://goreportcard.com/report/github.com/Teamwork/go-spamc)
+[![Build Status](https://travis-ci.org/Teamwork/spamc.svg?branch=master)](https://travis-ci.org/Teamwork/spamc)
+[![codecov](https://codecov.io/gh/Teamwork/spamc/branch/master/graph/badge.svg?token=n0k8YjbQOL)](https://codecov.io/gh/Teamwork/spamc)
+[![GoDoc](https://godoc.org/github.com/Teamwork/spamc?status.svg)](https://godoc.org/github.com/Teamwork/spamc)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Teamwork/spamc)](https://goreportcard.com/report/github.com/Teamwork/spamc)
 
-go-spamc is a Go package to connect to SpamAssassin's spamd daemon.
+spamc is a Go client library for SpamAssassin's spamd daemon.
 
-This is an updated and maintained version of
-[saintienn/go-spamc](https://github.com/saintienn/go-spamc), which hasn't been
-updated for a few years and has a number of bugs (e.g. panics on certain
-messages).
+It started out as a fork of saintienn/go-spamc with some fixes, but has since
+been completely rewritten.
 
-It can:
+Basic example:
 
-- Check a message for a spam (du'h).
-- Send messages to SpamAssassin to learn.
-- Do everything that `spamc` can.
+	// Connect
+	c := New("127.0.0.1:783", &net.Dialer{
+		Timeout: 20 * time.Second,
+	})
+	ctx := context.Background()
 
-Migrating from saintienn/go-spamc
----------------------------------
+	msg := strings.NewReader("Subject: Hello\r\n\r\nHey there!\r\n")
 
-This is **not** a drop-in replacement; there are a bunch of changes to the API.
-See godoc. The API is **not** yet stable!
+	// Check if a message is spam.
+	check, err := c.Check(ctx, msg, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(check.Score)
 
-The biggest caveat is that `New()` now takes a `time.Duration()` as its timeout,
-instead of an `int` and if it's `0` it will use the default timeout of 20
-seconds. So add `* time.Second` to convert it to a `time.Duration`.
+	// Report ham for training.
+	tell, err := c.Tell(ctx, msg, Header{}.
+		Set("Message-class", "ham").
+		Set("Set", "local"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(tell)
+
+See godoc for the full documentation.
 
 Runnings tests
 --------------
 
 Use `./bin/test` to run all tests; use `./bin/test -b testsa` to run tests that
 require a running SpamAssassin instance. This will automatically run SA in a
-Docker container.
-You can also use the `SPAMC_SA_ADDRESS` to indicate the SA address.
+Docker container. You can also use the `SPAMC_SA_ADDRESS` to set the SA address.
