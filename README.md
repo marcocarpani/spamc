@@ -1,7 +1,6 @@
 [![GoDoc](https://godoc.org/github.com/Teamwork/spamc?status.svg)](https://teamwork.github.io/spamc/)
 [![Build Status](https://travis-ci.org/Teamwork/spamc.svg?branch=master)](https://travis-ci.org/Teamwork/spamc)
 [![codecov](https://codecov.io/gh/Teamwork/spamc/branch/master/graph/badge.svg?token=n0k8YjbQOL)](https://codecov.io/gh/Teamwork/spamc)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Teamwork/spamc)](https://goreportcard.com/report/github.com/Teamwork/spamc)
 
 spamc is a Go client library for SpamAssassin's spamd daemon.
 
@@ -10,29 +9,31 @@ been completely rewritten.
 
 Basic example:
 
-	// Connect
-	c := New("127.0.0.1:783", &net.Dialer{
-		Timeout: 20 * time.Second,
-	})
-	ctx := context.Background()
+```go
+// Connect
+c := New("127.0.0.1:783", &net.Dialer{
+    Timeout: 20 * time.Second,
+})
+ctx := context.Background()
 
-	msg := strings.NewReader("Subject: Hello\r\n\r\nHey there!\r\n")
+msg := strings.NewReader("Subject: Hello\r\n\r\nHey there!\r\n")
 
-	// Check if a message is spam.
-	check, err := c.Check(ctx, msg, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(check.Score)
+// Check if a message is spam.
+check, err := c.Check(ctx, msg, nil)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(check.Score)
 
-	// Report ham for training.
-	tell, err := c.Tell(ctx, msg, Header{}.
-		Set("Message-class", "ham").
-		Set("Set", "local"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(tell)
+// Report ham for training.
+tell, err := c.Tell(ctx, msg, Header{}.
+    Set("Message-class", "ham").
+    Set("Set", "local"))
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(tell)
+```
 
 See godoc for the full documentation.
 
