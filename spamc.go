@@ -359,7 +359,12 @@ func (r Report) String() string {
 		}
 
 		line := fmt.Sprintf("%v%.1f %v", leadingSpace, t.Points, t.Rule)
-		line += strings.Repeat(" ", 28-len(line)) + t.Description + "\n"
+		nspaces := 27 - len(line)
+		spaces := " "
+		if nspaces > 0 {
+			spaces += strings.Repeat(" ", nspaces)
+		}
+		line += spaces + t.Description + "\n"
 		table += line
 	}
 
