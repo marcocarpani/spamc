@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/teamwork/utils/mathutil"
 )
 
 // Protocol version we talk.
@@ -354,7 +355,7 @@ func (r Report) String() string {
 
 	for _, t := range r.Table {
 		leadingSpace := ""
-		if t.Points > 0 {
+		if t.Points >= 0 && !mathutil.IsSignedZero(t.Points) {
 			leadingSpace = " "
 		}
 

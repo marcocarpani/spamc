@@ -267,7 +267,7 @@ func TestParseReport(t *testing.T) {
 				 0.4 INVALID_DATE           Invalid Date: header (not RFC 2822)
 				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP
 				-1.2 MISSING_HEADERS        Missing To: header
-				 0.1 HEADER_FROM_DIFFERENT_DOMAINS From and EnvelopeFrom 2nd level mail are different
+				 0.0 HEADER_FROM_DIFFERENT_DOMAINS From and EnvelopeFrom 2nd level mail are different
 			`),
 			Report{
 				Intro: normalizeSpace(`
@@ -289,7 +289,7 @@ func TestParseReport(t *testing.T) {
 						Description: "Invalid Date: header (not RFC 2822)",
 					},
 					{
-						Points:      0.0,
+						Points:      -0.0,
 						Rule:        "NO_RELAYS",
 						Description: "Informational: message was not relayed via SMTP",
 					},
@@ -299,7 +299,7 @@ func TestParseReport(t *testing.T) {
 						Description: "Missing To: header",
 					},
 					{
-						Points:      0.1,
+						Points:      0.0,
 						Rule:        "HEADER_FROM_DIFFERENT_DOMAINS",
 						Description: "From and EnvelopeFrom 2nd level mail are different",
 					},
@@ -328,7 +328,8 @@ func TestParseReport(t *testing.T) {
 
 			if !t.Failed() {
 				tc.in += "\n"
-				if d := diff.TextDiff(out.String(), tc.in); d != "" {
+				s := out.String()
+				if d := diff.TextDiff(s, tc.in); d != "" {
 					t.Errorf("String() not the same\n%v", d)
 				}
 			}

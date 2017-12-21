@@ -25,9 +25,15 @@
   packages = [".","diff","fakeconn"]
   revision = "559f1f9ef83a9d1858c16909fabb14abb61154a9"
 
+[[projects]]
+  branch = "master"
+  name = "github.com/teamwork/utils"
+  packages = ["mathutil"]
+  revision = "cb6abdaad548c37166283f60e501823b6427eaf7"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f843b9dfd3b1249076273ed4cfe4a425ee956feb453df0e5a08f141e75f43d09"
+  inputs-digest = "98c5b3796c07ce2c60082812bf0bce90b43b35a9cec4382cd68d4da43e848f7c"
   solver-name = "gps-cdcl"
   solver-version = 1
