@@ -1,5 +1,5 @@
 [![GoDoc](https://godoc.org/github.com/teamwork/spamc?status.svg)](https://godoc.org/github.com/teamwork/spamc)
-[![Build Status](https://travis-ci.org/Teamwork/spamc.svg?branch=master)](https://travis-ci.org/Teamwork/spamc)
+[![Build Status](https://travis-ci.com/Teamwork/spamc.svg?branch=master)](https://travis-ci.com/Teamwork/spamc)
 [![codecov](https://codecov.io/gh/Teamwork/spamc/branch/master/graph/badge.svg?token=n0k8YjbQOL)](https://codecov.io/gh/Teamwork/spamc)
 
 spamc is a Go client library for SpamAssassin's spamd daemon.
