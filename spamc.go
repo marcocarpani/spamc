@@ -417,26 +417,28 @@ func parseReport(tp *textproto.Reader) (Report, error) {
 
 		case table:
 			s := reTableLine.FindAllStringSubmatch(line, -1)
-			if len(s) != 1 {
-				continue
-			}
+			if len(s) != 0 {
+				points, err := strconv.ParseFloat(s[0][1], 64)
+				if err != nil {
+					continue
+				}
 
-			if len(s[0]) != 4 {
-				continue
-			}
+				report.Table = append(report.Table, struct {
+					Points      float64
+					Rule        string
+					Description string
+				}{
+					points, s[0][2], s[0][3],
+				})
+			} else {
+				indexShift := 1
 
-			points, err := strconv.ParseFloat(s[0][1], 64)
-			if err != nil {
-				continue
+				last := len(report.Table) - indexShift
+				if last >= 0 {
+					line = strings.TrimSpace(line)
+					report.Table[last].Description += "\n                            " + line
+				}
 			}
-
-			report.Table = append(report.Table, struct {
-				Points      float64
-				Rule        string
-				Description string
-			}{
-				points, s[0][2], s[0][3],
-			})
 		}
 	}
 
