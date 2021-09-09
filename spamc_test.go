@@ -257,23 +257,28 @@ func TestParseReportWithNewlines(t *testing.T) {
 			normalizeSpace(`
 				Spam detection software, running on the system "d311d8df23f8",
 				has NOT identified this incoming email as spam.
+
 				Content preview:  the body [...]
+
 				Content analysis details:   (4.4 points, 5.0 required)
+
 				 pts rule name              description
 				---- ---------------------- --------------------------------------------------
 				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP	
 				 0.0 HEADER_FROM_DIFFERENT_DOMAINS From and EnvelopeFrom 2nd level mail are different
 				 1.9 URIBL_ABUSE_SURBL      Contains an URL listed in the ABUSE SURBL blocklist
-				 							[URIs: blacklisedurl.com]
+				                            [URIs: blacklistedurl.com]
 				 2.5 URIBL_DBL_SPAM         Contains a spam URL listed in the Spamhaus DBL
-				 							blocklist
-				 							[URIs: blablablabla.com]
+				                            blocklist
+				                            [URIs: blablablabla.com]
 			`),
 			Report{
 				Intro: normalizeSpace(`
 					Spam detection software, running on the system "d311d8df23f8",
 					has NOT identified this incoming email as spam.
+
 					Content preview:  the body [...]
+
 					Content analysis details:   (4.4 points, 5.0 required)
 				`),
 				Table: []struct {
@@ -294,12 +299,12 @@ func TestParseReportWithNewlines(t *testing.T) {
 					{
 						Points:      1.9,
 						Rule:        "URIBL_ABUSE_SURBL",
-						Description: "Contains an URL listed in the ABUSE SURBL blocklist\n[URIs: blacklisedurl.com]",
+						Description: "Contains an URL listed in the ABUSE SURBL blocklist\n                            [URIs: blacklistedurl.com]",
 					},
 					{
 						Points:      2.5,
 						Rule:        "URIBL_DBL_SPAM",
-						Description: "Contains a spam URL listed in the Spamhaus DBL\nblocklist\n[URIs: blablablabla.com]",
+						Description: "Contains a spam URL listed in the Spamhaus DBL\n                            blocklist\n                            [URIs: blablablabla.com]",
 					},
 				},
 			},
