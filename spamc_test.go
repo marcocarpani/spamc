@@ -248,6 +248,93 @@ func TestParseSpamHeader(t *testing.T) {
 	}
 }
 
+func TestParseReportWithNewlines(t *testing.T) {
+	cases := []struct {
+		in   string
+		want Report
+	}{
+		{
+			normalizeSpace(`
+				Spam detection software, running on the system "d311d8df23f8",
+				has NOT identified this incoming email as spam.
+				Content preview:  the body [...]
+				Content analysis details:   (4.4 points, 5.0 required)
+				 pts rule name              description
+				---- ---------------------- --------------------------------------------------
+				-0.0 NO_RELAYS              Informational: message was not relayed via SMTP	
+				 0.0 HEADER_FROM_DIFFERENT_DOMAINS From and EnvelopeFrom 2nd level mail are different
+				 1.9 URIBL_ABUSE_SURBL      Contains an URL listed in the ABUSE SURBL blocklist
+				 							[URIs: blacklisedurl.com]
+				 2.5 URIBL_DBL_SPAM         Contains a spam URL listed in the Spamhaus DBL
+				 							blocklist
+				 							[URIs: blablablabla.com]
+			`),
+			Report{
+				Intro: normalizeSpace(`
+					Spam detection software, running on the system "d311d8df23f8",
+					has NOT identified this incoming email as spam.
+					Content preview:  the body [...]
+					Content analysis details:   (4.4 points, 5.0 required)
+				`),
+				Table: []struct {
+					Points      float64
+					Rule        string
+					Description string
+				}{
+					{
+						Points:      -0.0,
+						Rule:        "NO_RELAYS",
+						Description: "Informational: message was not relayed via SMTP",
+					},
+					{
+						Points:      0.0,
+						Rule:        "HEADER_FROM_DIFFERENT_DOMAINS",
+						Description: "From and EnvelopeFrom 2nd level mail are different",
+					},
+					{
+						Points:      1.9,
+						Rule:        "URIBL_ABUSE_SURBL",
+						Description: "Contains an URL listed in the ABUSE SURBL blocklist\n[URIs: blacklisedurl.com]",
+					},
+					{
+						Points:      2.5,
+						Rule:        "URIBL_DBL_SPAM",
+						Description: "Contains a spam URL listed in the Spamhaus DBL\nblocklist\n[URIs: blablablabla.com]",
+					},
+				},
+			},
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			tp := textproto.NewReader(bufio.NewReader(strings.NewReader(tc.in)))
+
+			out, err := parseReport(tp)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if d := diff.TextDiff(tc.want.Intro, out.Intro); d != "" {
+				t.Errorf("intro wrong\n%v", d)
+			}
+
+			if !reflect.DeepEqual(out.Table, tc.want.Table) {
+				t.Errorf("wrong table\nout:  %#v\nwant: %#v\n",
+					out.Table, tc.want.Table)
+			}
+
+			if !t.Failed() {
+				tc.in += "\n"
+				s := out.String()
+				if d := diff.TextDiff(s, tc.in); d != "" {
+					t.Errorf("String() not the same\n%v", d)
+				}
+			}
+		})
+	}
+}
+
 func TestParseReport(t *testing.T) {
 	cases := []struct {
 		in   string

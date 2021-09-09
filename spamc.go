@@ -431,12 +431,11 @@ func parseReport(tp *textproto.Reader) (Report, error) {
 					points, s[0][2], s[0][3],
 				})
 			} else {
-				indexShift := 1
 
-				last := len(report.Table) - indexShift
+				last := len(report.Table) - 1
 				if last >= 0 {
 					line = strings.TrimSpace(line)
-					report.Table[last].Description += "\n                            " + line
+					report.Table[last].Description += "\n" + strings.Repeat(" ", 28) + strings.TrimSpace(line)
 				}
 			}
 		}
